@@ -14,6 +14,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Send,
   Sparkles,
   Trash2,
   UserPlus,
@@ -22,8 +23,8 @@ import {
 import { supabase } from "@/lib/supabase";
 import type { ZaloContact, ZaloMessage } from "@/lib/types";
 
-const PAGE_SOURCE = "ha-hoa-web-page-v140";
-const EXTENSION_SOURCE = "ha-hoa-zalo-extension-v140";
+const PAGE_SOURCE = "ha-hoa-web-page-v150";
+const EXTENSION_SOURCE = "ha-hoa-zalo-extension-v150";
 
 interface CapturedMessage {
   messageKey: string;
@@ -51,6 +52,7 @@ interface BridgeResponse {
   scanRounds?: number;
   messages?: CapturedMessage[];
   captures?: AutoCaptureEvent[];
+  capture?: BridgeResponse;
 }
 
 interface AutoCaptureEvent {
@@ -70,7 +72,7 @@ interface AiResult {
   persistence_warning?: string;
 }
 
-function bridgeRequest(action: "ping" | "capture" | "open" | "drain" | "ack", payload: Record<string, string> = {}, timeout = 12000) {
+function bridgeRequest(action: "ping" | "capture" | "open" | "send" | "drain" | "ack", payload: Record<string, string> = {}, timeout = 12000) {
   return new Promise<BridgeResponse>((resolve) => {
     const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
     const timer = window.setTimeout(() => {
@@ -401,6 +403,39 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
     setNotice("Đã sao chép câu trả lời. Mở Zalo và dán để gửi.");
   }
 
+  async function sendSuggestion(value: string) {
+    if (!selected || !value.trim()) return;
+    if (!extensionReady) {
+      setError("Cần cài và bật tiện ích Hà Hoà Zalo Bridge để gửi tin vào Zalo.");
+      return;
+    }
+    if (!window.confirm(`Gửi câu trả lời này tới “${selected.display_name}” trên Zalo?`)) return;
+    setBusy(`reply-${selected.id}`);
+    setError("");
+    try {
+      const response = await bridgeRequest("send", {
+        displayName: selected.display_name,
+        phone: selected.phone || "",
+        conversationId: selected.conversation_id || "",
+        conversationKey: selected.conversation_key || "",
+        conversationUrl: selected.conversation_url || "",
+        text: value.trim(),
+      }, 40000);
+      if (!response.ok) throw new Error(response.error || "Không gửi được tin nhắn Zalo.");
+      if (response.capture?.ok) {
+        const { messageCount } = await persistCapturedConversation(response.capture, true);
+        setNotice(`Đã gửi cho “${selected.display_name}” và cập nhật ${messageCount} tin nhắn vào lịch sử.`);
+      } else {
+        setNotice(response.warning || `Đã gửi cho “${selected.display_name}”. Bấm Đồng bộ mới để cập nhật lịch sử.`);
+      }
+      setAiResult(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Không gửi được tin nhắn Zalo.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function deleteContact(contact: ZaloContact) {
     if (!window.confirm(`Xoá ${contact.display_name} và lịch sử đã đồng bộ?`)) return;
     setBusy(contact.id);
@@ -416,7 +451,7 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
     <div className="zalo-toolbar-card">
       <div className="zalo-bridge-state"><span className={extensionReady ? "ready" : "offline"}>{extensionReady ? <CheckCircle2 /> : <Link2 />}</span><div><strong>{extensionReady ? "Đã kết nối Zalo Web" : "Chưa thấy tiện ích Zalo Bridge"}</strong><small>{extensionReady ? `Tự đồng bộ tin khách mới và tạo gợi ý AI${extensionVersion ? ` · Bản ${extensionVersion}` : ""}.` : "Cài tiện ích để tự nhận tin mới từ Zalo Web."}</small></div></div>
       <div className="zalo-toolbar-actions">
-        <a className="secondary-button" href="/zalo-bridge-extension.zip?v=1.4.0" download><Download size={17} /> {extensionReady ? "Cập nhật tiện ích 1.4" : "Tải tiện ích 1.4"}</a>
+        <a className="secondary-button" href="/zalo-bridge-extension.zip?v=1.5.0" download><Download size={17} /> {extensionReady ? "Cập nhật tiện ích 1.5" : "Tải tiện ích 1.5"}</a>
         <a className="secondary-button" href="https://chat.zalo.me/" target="ha_hoa_zalo" rel="noreferrer"><ExternalLink size={17} /> Mở Zalo Web</a>
         <button className="primary-button" onClick={() => void syncCurrentConversation()} disabled={busy === "sync"}>{busy === "sync" ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Đồng bộ hội thoại đang mở</button>
       </div>
@@ -447,7 +482,7 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
           {!selected && <p className="zalo-ai-placeholder">Bấm vào tên liên hệ để xem lịch sử và nhờ AI xử lý đoạn chat hiện có.</p>}
           {selected && !messages.length && <p className="zalo-ai-placeholder">Hội thoại này chưa có lịch sử. Mở đúng chat trên Zalo rồi bấm đồng bộ.</p>}
           {selected && messages.length > 0 && !aiResult && <button className="secondary-button zalo-ai-button" onClick={() => void generateSuggestions()} disabled={aiLoading}>{aiLoading ? <LoaderCircle className="spin" size={16} /> : <Bot size={16} />} Phân tích và gợi ý trả lời</button>}
-          {aiResult && <div className="zalo-ai-result"><div><small>Tóm tắt</small><p>{aiResult.summary}</p></div>{aiResult.customer_intent && <div><small>Khách đang cần</small><p>{aiResult.customer_intent}</p></div>}<div className="zalo-ai-suggestions"><small>Câu trả lời gợi ý</small>{aiResult.suggestions.map((suggestion, index) => <button key={`${suggestion}-${index}`} onClick={() => void copySuggestion(suggestion)}><span>{suggestion}</span><Clipboard size={14} /></button>)}</div>{aiResult.next_action && <div><small>Việc nên làm tiếp</small><p>{aiResult.next_action}</p></div>}<button className="text-button" onClick={() => void generateSuggestions()} disabled={aiLoading}><RefreshCw size={14} /> Tạo lại gợi ý</button></div>}
+          {aiResult && <div className="zalo-ai-result"><div><small>Tóm tắt</small><p>{aiResult.summary}</p></div>{aiResult.customer_intent && <div><small>Khách đang cần</small><p>{aiResult.customer_intent}</p></div>}<div className="zalo-ai-suggestions"><small>Câu trả lời gợi ý</small>{aiResult.suggestions.map((suggestion, index) => <div className="zalo-suggestion-actions" key={`${suggestion}-${index}`}><button onClick={() => void copySuggestion(suggestion)} title="Sao chép câu trả lời"><span>{suggestion}</span><Clipboard size={14} /></button><button className="primary-button" onClick={() => void sendSuggestion(suggestion)} disabled={busy === `reply-${selected?.id}`}><Send size={14} /> Gửi Zalo</button></div>)}</div>{aiResult.next_action && <div><small>Việc nên làm tiếp</small><p>{aiResult.next_action}</p></div>}<button className="text-button" onClick={() => void generateSuggestions()} disabled={aiLoading}><RefreshCw size={14} /> Tạo lại gợi ý</button></div>}
         </section>
       </aside>
 

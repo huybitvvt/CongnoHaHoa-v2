@@ -24,7 +24,7 @@ function setupBackground() {
       get: async (id) => ({ id, status: 'complete' }),
       sendMessage: async (tabId, message) => {
         sent.push({ tabId, message });
-        if (message.type === 'HAHOA_ZALO_CAPTURE_AUTO_V4') {
+        if (message.type === 'HAHOA_ZALO_CAPTURE_AUTO_V5') {
           return {
             ok: true,
             displayName: 'Nguyễn Đắc Công',
@@ -33,6 +33,7 @@ function setupBackground() {
             messages: [{ messageKey: 'message-1', direction: 'incoming', body: 'Khách vừa nhắn', sortOrder: 0 }],
           };
         }
+        if (message.type === 'HAHOA_ZALO_OPEN_CONTACT_V5') return { ok: true, exact: message.payload.displayName !== 'Người trùng tên' };
         return { ok: true };
       },
       update: async () => null,
@@ -98,9 +99,35 @@ test('đồng bộ thủ công dùng nấc cuộn lớn và giới hạn lịch 
   const { listeners, sent } = setupBackground();
   const result = await send(listeners[0], { type: 'HAHOA_ZALO_BRIDGE_COMMAND', action: 'capture' });
   assert.equal(result.ok, true);
-  const request = sent.find((item) => item.message.type === 'HAHOA_ZALO_CAPTURE_ACTIVE_V4');
+  const request = sent.find((item) => item.message.type === 'HAHOA_ZALO_CAPTURE_ACTIVE_V5');
   assert.equal(request.message.payload.limit, 8000);
   assert.equal(request.message.payload.maxScrolls, 220);
   assert.equal(request.message.payload.scrollStepRatio, 0.96);
   assert.equal(request.message.payload.pauseMs, 420);
+});
+
+test('chỉ gửi gợi ý sau khi tiện ích xác nhận đúng hội thoại và trả capture để lưu lịch sử', async () => {
+  const { listeners, sent } = setupBackground();
+  const result = await send(listeners[0], {
+    type: 'HAHOA_ZALO_BRIDGE_COMMAND',
+    action: 'send',
+    payload: { displayName: 'Nguyễn Đắc Công', conversationKey: 'zalo-contact-1', conversationId: 'zalo-contact-1', text: 'Em gửi anh file CSV nhé.' },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.capture.ok, true);
+  assert.equal(sent.some((item) => item.message.type === 'HAHOA_ZALO_OPEN_CONTACT_V5'), true);
+  assert.equal(sent.some((item) => item.message.type === 'HAHOA_ZALO_SEND_REPLY_V5' && item.message.payload.text === 'Em gửi anh file CSV nhé.'), true);
+  assert.equal(sent.some((item) => item.message.type === 'HAHOA_ZALO_CAPTURE_AUTO_V5'), true);
+});
+
+test('chặn gửi khi tiện ích không xác nhận được đúng người nhận', async () => {
+  const { listeners, sent } = setupBackground();
+  const result = await send(listeners[0], {
+    type: 'HAHOA_ZALO_BRIDGE_COMMAND',
+    action: 'send',
+    payload: { displayName: 'Người trùng tên', text: 'Không được gửi nhầm.' },
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Chưa xác nhận/);
+  assert.equal(sent.some((item) => item.message.type === 'HAHOA_ZALO_SEND_REPLY_V5'), false);
 });

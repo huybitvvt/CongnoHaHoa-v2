@@ -1,6 +1,6 @@
 (() => {
-  if (globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V140__) return;
-  globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V140__ = true;
+  if (globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V150__) return;
+  globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V150__ = true;
   const CONTROL_TEXT = /^(aa|soạn|soạn tin nhắn|nhập tin nhắn|nhập @, tin nhắn|message|write a message|type a message|gửi|send|đã gửi|sent|đã xem|seen|đang nhập|typing|zalo|tất cả|all|chưa đọc|unread|tìm kiếm|search|thông báo|notifications|tắt thông báo|mute notifications|trang cá nhân|profile|thông tin|info|file|ảnh|photo|video|sticker|gif|emoji|like)$/i;
   const SYSTEM_TEXT = /^(tin nhắn và cuộc gọi|bạn đã tạo nhóm này|bạn chưa kết nối|các bạn không phải|giờ đây, các bạn|now you can|cuộc gọi|missed call|đã thu hồi|recalled|đã ghim|pinned|đã đổi|changed|đã thêm|added|đã rời|left|sử dụng zalo pc để tìm tin nhắn trước ngày|tải zalo pc)\b/i;
   const MENU_TEXT = /^(đoạn chat|tin nhắn|danh bạ|khám phá|nhật ký|cloud của tôi|zalo ai|todo|media|file phương tiện|quyền riêng tư|privacy|cài đặt|settings|tùy chỉnh|customize)$/i;
@@ -1609,6 +1609,61 @@
     return { ok: false, error: 'Không tìm thấy ' + (displayName || phone) + ' trong kết quả Zalo.' };
   }
 
+  function hahoaComposerText(composer) {
+    if (composer instanceof HTMLInputElement || composer instanceof HTMLTextAreaElement) return normalize(composer.value);
+    return normalize(composer?.innerText || composer?.textContent || '');
+  }
+
+  function hahoaSetComposerText(composer, value) {
+    composer.focus();
+    if (composer instanceof HTMLInputElement || composer instanceof HTMLTextAreaElement) {
+      const prototype = composer instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(composer, value);
+    } else {
+      composer.textContent = value;
+    }
+    composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+    composer.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function hahoaFindSendButton(composer) {
+    const composerRect = composer.getBoundingClientRect();
+    return [...document.querySelectorAll('button, [role="button"], [aria-label], [title]')]
+      .filter((node) => {
+        if (!isVisible(node) || node === composer || composer.contains(node)) return false;
+        const rect = node.getBoundingClientRect();
+        if (rect.width < 24 || rect.height < 24 || rect.top < composerRect.top - 80 || rect.bottom > composerRect.bottom + 90) return false;
+        if (rect.left < composerRect.right - 140) return false;
+        const label = normalize(`${node.getAttribute('aria-label') || ''} ${node.getAttribute('title') || ''} ${node.className || ''} ${node.innerText || ''}`).toLocaleLowerCase('vi-VN');
+        return /(^|\\s)(gửi|gui|send)(\\s|$)|send[-_]?button|btn[-_]?send/.test(label) && !/yêu cầu kết bạn|friend request/.test(label);
+      })
+      .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0] || null;
+  }
+
+  async function hahoaSendReply(payload = {}) {
+    const text = normalize(String(payload.text || ''));
+    if (!text) return { ok: false, error: 'Nội dung trả lời đang trống.' };
+    if (text.length > 2000) return { ok: false, error: 'Tin nhắn Zalo tối đa 2.000 ký tự.' };
+    const expectedConversationId = String(payload.expectedConversationId || '');
+    const metadata = await collectZaloThread({ metadataOnly: true });
+    if (!metadata?.ok) return metadata;
+    if (expectedConversationId && metadata.conversation_id !== expectedConversationId) {
+      return { ok: false, error: 'Hội thoại Zalo đã thay đổi. Hãy mở đúng cuộc chat rồi thử lại.' };
+    }
+    const composer = findComposer();
+    if (!composer) return { ok: false, error: 'Không tìm thấy ô soạn tin nhắn Zalo.' };
+    const draft = hahoaComposerText(composer);
+    if (draft && draft !== text) return { ok: false, error: 'Ô soạn Zalo đang có nội dung nháp. Hãy gửi hoặc xoá nháp trước khi dùng gợi ý AI.' };
+    if (!draft) {
+      hahoaSetComposerText(composer, text);
+      await sleep(180);
+    }
+    const sendButton = hahoaFindSendButton(composer);
+    if (!sendButton || !hahoaClick(sendButton)) return { ok: false, error: 'Không tìm thấy nút Gửi trên Zalo. Hãy kiểm tra lại Zalo Web.' };
+    await sleep(500);
+    return { ok: true };
+  }
+
   function hahoaMessageType(value) {
     const raw = normalize(value).toLocaleLowerCase('vi-VN');
     if (raw === 'image' || raw === 'photo' || raw === 'video') return 'image';
@@ -1665,20 +1720,26 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === 'HAHOA_ZALO_CAPTURE_ACTIVE_V4') {
+    if (message?.type === 'HAHOA_ZALO_CAPTURE_ACTIVE_V5') {
       hahoaCaptureThread(message.payload || {})
         .then(sendResponse)
         .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;
     }
-    if (message?.type === 'HAHOA_ZALO_CAPTURE_AUTO_V4') {
+    if (message?.type === 'HAHOA_ZALO_CAPTURE_AUTO_V5') {
       hahoaCaptureThread({ ...(message.payload || {}), autoDetected: true })
         .then(sendResponse)
         .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;
     }
-    if (message?.type === 'HAHOA_ZALO_OPEN_CONTACT_V4') {
+    if (message?.type === 'HAHOA_ZALO_OPEN_CONTACT_V5') {
       hahoaOpenContact(message.payload || {})
+        .then(sendResponse)
+        .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+      return true;
+    }
+    if (message?.type === 'HAHOA_ZALO_SEND_REPLY_V5') {
+      hahoaSendReply(message.payload || {})
         .then(sendResponse)
         .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
       return true;

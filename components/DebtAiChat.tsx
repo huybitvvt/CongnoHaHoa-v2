@@ -49,7 +49,7 @@ export function DebtAiChat({ accessToken, onClose, initialPrompt = null }: Props
   const [fromDate, setFromDate] = useState(() => localIsoDate());
   const [toDate, setToDate] = useState(() => localIsoDate());
   const [loading, setLoading] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const [downloading, setDownloading] = useState<"json" | "csv" | null>(null);
   const [error, setError] = useState("");
   const [codexStatus, setCodexStatus] = useState<CodexStatus | null>(null);
   const [codexLoading, setCodexLoading] = useState(true);
@@ -186,29 +186,29 @@ export function DebtAiChat({ accessToken, onClose, initialPrompt = null }: Props
     void askQuestion(initialPrompt, [WELCOME]);
   }, [askQuestion, codexLoading, codexStatus, initialPrompt, loading]);
 
-  async function downloadJson() {
-    setDownloading(true);
+  async function downloadDebtFile(format: "json" | "csv") {
+    setDownloading(format);
     setError("");
     try {
-      if (!fromDate || !toDate || fromDate > toDate) throw new Error("Hãy chọn khoảng ngày hợp lệ trước khi tải JSON.");
-      const query = new URLSearchParams({ from_date: fromDate, to_date: toDate });
+      if (!fromDate || !toDate || fromDate > toDate) throw new Error("Hãy chọn khoảng ngày hợp lệ trước khi tải dữ liệu.");
+      const query = new URLSearchParams({ from_date: fromDate, to_date: toDate, format });
       const response = await fetch(`/api/debts/json?${query}`, { headers: { Authorization: `Bearer ${accessToken}` } });
       if (!response.ok) {
         const data = await response.json() as { error?: string };
-        throw new Error(data.error || "Không thể tải file JSON.");
+        throw new Error(data.error || `Không thể tải file ${format.toUpperCase()}.`);
       }
       const blob = await response.blob();
       const disposition = response.headers.get("content-disposition") || "";
-      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "cong-no-ha-hoa.json";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `cong-no-ha-hoa.${format}`;
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       link.download = filename;
       link.click();
       URL.revokeObjectURL(link.href);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Không thể tải file JSON.");
+      setError(caught instanceof Error ? caught.message : `Không thể tải file ${format.toUpperCase()}.`);
     } finally {
-      setDownloading(false);
+      setDownloading(null);
     }
   }
 
@@ -241,9 +241,14 @@ export function DebtAiChat({ accessToken, onClose, initialPrompt = null }: Props
             <label><span>Từ ngày</span><div><CalendarDays size={14} /><input type="date" value={fromDate} max={toDate || undefined} onChange={(event) => changeDate("from", event.target.value)} /></div></label>
             <label><span>Đến ngày</span><div><CalendarDays size={14} /><input type="date" value={toDate} min={fromDate || undefined} onChange={(event) => changeDate("to", event.target.value)} /></div></label>
           </div>
-          <button className="secondary-button" type="button" onClick={() => void downloadJson()} disabled={downloading}>
-            {downloading ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />} Tải JSON
-          </button>
+          <div className="ai-download-actions">
+            <button className="secondary-button" type="button" onClick={() => void downloadDebtFile("csv")} disabled={downloading !== null}>
+              {downloading === "csv" ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />} Tải CSV
+            </button>
+            <button className="secondary-button" type="button" onClick={() => void downloadDebtFile("json")} disabled={downloading !== null}>
+              {downloading === "json" ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />} Tải JSON
+            </button>
+          </div>
         </div>
 
         <div className={`codex-connect ${codexStatus?.authenticated ? "connected" : ""}`}>

@@ -84,7 +84,7 @@ async function captureConversation() {
   await waitForTab(tab.id);
   await injectLatestZaloBridge(tab.id);
   const result = await sendToZalo(tab.id, {
-    type: 'HAHOA_ZALO_CAPTURE_ACTIVE_V4',
+    type: 'HAHOA_ZALO_CAPTURE_ACTIVE_V5',
     payload: { limit: 8000, maxScrolls: 220, pauseMs: 420, scrollStepRatio: 0.96, deep: true },
   });
   if (!result?.ok) return result || { ok: false, error: 'Không đọc được cuộc hội thoại Zalo đang mở.' };
@@ -102,7 +102,7 @@ async function openConversation(payload = {}) {
   await waitForTab(tab.id);
   await injectLatestZaloBridge(tab.id);
   const result = await sendToZalo(tab.id, {
-    type: 'HAHOA_ZALO_OPEN_CONTACT_V4',
+    type: 'HAHOA_ZALO_OPEN_CONTACT_V5',
     payload: {
       displayName: String(payload.displayName || ''),
       phone: String(payload.phone || ''),
@@ -116,6 +116,49 @@ async function openConversation(payload = {}) {
     return { ok: true, exact: false, warning: result?.error || 'Đã mở liên kết Zalo; chưa xác nhận được đúng tiêu đề hội thoại.' };
   }
   return result || { ok: false, error: 'Không tìm thấy liên hệ trên Zalo Web.' };
+}
+
+async function sendReply(payload = {}) {
+  const text = String(payload.text || '').trim();
+  if (!text) return { ok: false, error: 'Nội dung trả lời đang trống.' };
+  if (text.length > 2000) return { ok: false, error: 'Tin nhắn Zalo tối đa 2.000 ký tự.' };
+
+  const opened = await openConversation(payload);
+  if (!opened?.ok) return opened || { ok: false, error: 'Không mở được hội thoại Zalo.' };
+  if (opened.exact !== true) {
+    return { ok: false, error: 'Chưa xác nhận được đúng người nhận. Hãy mở đúng chat trên Zalo rồi thử lại.' };
+  }
+  const tabId = opened.zaloTabId;
+  if (!Number.isInteger(tabId)) return { ok: false, error: 'Không xác định được tab Zalo để gửi tin.' };
+
+  await injectLatestZaloBridge(tabId);
+  const sent = await sendToZalo(tabId, {
+    type: 'HAHOA_ZALO_SEND_REPLY_V5',
+    payload: {
+      text,
+      expectedConversationId: String(payload.conversationId || ''),
+    },
+  });
+  if (!sent?.ok) return sent || { ok: false, error: 'Không gửi được tin nhắn Zalo.' };
+
+  await sleep(700);
+  const capture = await sendToZalo(tabId, {
+    type: 'HAHOA_ZALO_CAPTURE_AUTO_V5',
+    payload: {
+      autoDetected: true,
+      deep: false,
+      limit: 60,
+      maxScrolls: 1,
+      pauseMs: 320,
+      expectedConversationId: String(payload.conversationId || ''),
+    },
+  }).catch((error) => ({ ok: false, error: error?.message || String(error) }));
+
+  return {
+    ...sent,
+    capture: capture?.ok ? capture : undefined,
+    warning: capture?.ok ? '' : (capture?.error || 'Đã gửi tin nhưng chưa thể đồng bộ lịch sử ngay.'),
+  };
 }
 
 async function pendingCaptures() {
@@ -189,7 +232,7 @@ async function enqueueAutomaticZaloSync(message, sender) {
       state.queued = null;
       await injectLatestZaloBridge(tabId);
       const result = await sendToZalo(tabId, {
-        type: 'HAHOA_ZALO_CAPTURE_AUTO_V4',
+        type: 'HAHOA_ZALO_CAPTURE_AUTO_V5',
         payload: {
           autoDetected: true,
           deep: false,
@@ -234,6 +277,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     ? captureConversation()
     : action === 'open'
       ? openConversation(message.payload || {})
+      : action === 'send'
+        ? sendReply(message.payload || {})
       : action === 'drain'
         ? pendingCaptures().then((captures) => ({ ok: true, captures }))
         : action === 'ack'
