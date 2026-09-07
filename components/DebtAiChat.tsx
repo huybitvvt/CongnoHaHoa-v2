@@ -11,6 +11,7 @@ interface ChatMessage {
 interface Props {
   accessToken: string;
   onClose: () => void;
+  initialPrompt?: string | null;
 }
 
 interface CodexStatus {
@@ -42,7 +43,7 @@ function localIsoDate(date = new Date()) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 }
 
-export function DebtAiChat({ accessToken, onClose }: Props) {
+export function DebtAiChat({ accessToken, onClose, initialPrompt = null }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME]);
   const [input, setInput] = useState("");
   const [fromDate, setFromDate] = useState(() => localIsoDate());
@@ -55,6 +56,7 @@ export function DebtAiChat({ accessToken, onClose }: Props) {
   const [deviceLogin, setDeviceLogin] = useState<DeviceLogin | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const pollTimerRef = useRef<number | null>(null);
+  const autoAskedRef = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -141,15 +143,14 @@ export function DebtAiChat({ accessToken, onClose }: Props) {
     }
   }
 
-  async function submit(event?: FormEvent, suggestion?: string) {
-    event?.preventDefault();
-    const question = (suggestion || input).trim();
-    if (!question || loading) return;
+  const askQuestion = useCallback(async (question: string, history: ChatMessage[]) => {
+    const trimmed = question.trim();
+    if (!trimmed || loading) return;
     if (!fromDate || !toDate || fromDate > toDate) {
       setError("Hãy chọn khoảng ngày hợp lệ trước khi hỏi AI.");
       return;
     }
-    const nextMessages = [...messages, { role: "user" as const, content: question }];
+    const nextMessages = [...history, { role: "user" as const, content: trimmed }];
     setMessages(nextMessages);
     setInput("");
     setError("");
@@ -171,7 +172,19 @@ export function DebtAiChat({ accessToken, onClose }: Props) {
     } finally {
       setLoading(false);
     }
+  }, [accessToken, fromDate, loading, toDate]);
+
+  async function submit(event?: FormEvent, suggestion?: string) {
+    event?.preventDefault();
+    await askQuestion(suggestion || input, messages);
   }
+
+  useEffect(() => {
+    if (autoAskedRef.current || !initialPrompt?.trim() || codexLoading || loading) return;
+    if (!codexStatus?.authenticated && !codexStatus?.fallback_available) return;
+    autoAskedRef.current = true;
+    void askQuestion(initialPrompt, [WELCOME]);
+  }, [askQuestion, codexLoading, codexStatus, initialPrompt, loading]);
 
   async function downloadJson() {
     setDownloading(true);

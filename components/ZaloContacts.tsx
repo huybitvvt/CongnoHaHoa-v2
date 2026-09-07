@@ -111,7 +111,7 @@ function messageTime(message: ZaloMessage) {
   return new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }).format(new Date(value));
 }
 
-export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: string; onOpenDebtAi: () => void }) {
+export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: string; onOpenDebtAi: (prompt?: string) => void }) {
   const [contacts, setContacts] = useState<ZaloContact[]>([]);
   const [messages, setMessages] = useState<ZaloMessage[]>([]);
   const [selected, setSelected] = useState<ZaloContact | null>(null);
@@ -384,6 +384,18 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
     }
   }
 
+  function openAiWithCurrentChat() {
+    if (!selected) {
+      setError("Hãy chọn một cuộc hội thoại trước.");
+      return;
+    }
+    if (!messages.length) {
+      setError("Hội thoại này chưa có tin nhắn. Đồng bộ chat trên Zalo rồi thử lại.");
+      return;
+    }
+    onOpenDebtAi(buildChatProcessPrompt(selected, messages));
+  }
+
   async function copySuggestion(value: string) {
     await navigator.clipboard.writeText(value);
     setNotice("Đã sao chép câu trả lời. Mở Zalo và dán để gửi.");
@@ -430,16 +442,17 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
         <section className="zalo-ai-card">
           <div className="zalo-ai-heading"><span><Sparkles size={18} /></span><div><strong>AI gợi ý</strong><small>{selected ? `Dựa trên hội thoại với ${selected.display_name}` : "Chọn một hội thoại trước"}</small></div></div>
           {autoSyncing && <div className="zalo-auto-sync"><LoaderCircle className="spin" size={15} /><span>Đang nhận tin Zalo mới và tạo gợi ý…</span></div>}
-          <button className="secondary-button zalo-debt-ai-button" onClick={onOpenDebtAi}><Bot size={16} /> Hỏi AI về công nợ</button>
-          {!selected && <p className="zalo-ai-placeholder">Bấm vào tên liên hệ để xem lịch sử và nhờ AI gợi ý cách trả lời.</p>}
+          <button className="secondary-button zalo-debt-ai-button" onClick={() => onOpenDebtAi()}><Bot size={16} /> Hỏi AI về công nợ</button>
+          <button className="primary-button zalo-ai-button" onClick={openAiWithCurrentChat} disabled={!selected || !messages.length}><Sparkles size={16} /> AI xử lý đoạn chat</button>
+          {!selected && <p className="zalo-ai-placeholder">Bấm vào tên liên hệ để xem lịch sử và nhờ AI xử lý đoạn chat hiện có.</p>}
           {selected && !messages.length && <p className="zalo-ai-placeholder">Hội thoại này chưa có lịch sử. Mở đúng chat trên Zalo rồi bấm đồng bộ.</p>}
-          {selected && messages.length > 0 && !aiResult && <button className="primary-button zalo-ai-button" onClick={() => void generateSuggestions()} disabled={aiLoading}>{aiLoading ? <LoaderCircle className="spin" size={16} /> : <Bot size={16} />} Phân tích và gợi ý trả lời</button>}
+          {selected && messages.length > 0 && !aiResult && <button className="secondary-button zalo-ai-button" onClick={() => void generateSuggestions()} disabled={aiLoading}>{aiLoading ? <LoaderCircle className="spin" size={16} /> : <Bot size={16} />} Phân tích và gợi ý trả lời</button>}
           {aiResult && <div className="zalo-ai-result"><div><small>Tóm tắt</small><p>{aiResult.summary}</p></div>{aiResult.customer_intent && <div><small>Khách đang cần</small><p>{aiResult.customer_intent}</p></div>}<div className="zalo-ai-suggestions"><small>Câu trả lời gợi ý</small>{aiResult.suggestions.map((suggestion, index) => <button key={`${suggestion}-${index}`} onClick={() => void copySuggestion(suggestion)}><span>{suggestion}</span><Clipboard size={14} /></button>)}</div>{aiResult.next_action && <div><small>Việc nên làm tiếp</small><p>{aiResult.next_action}</p></div>}<button className="text-button" onClick={() => void generateSuggestions()} disabled={aiLoading}><RefreshCw size={14} /> Tạo lại gợi ý</button></div>}
         </section>
       </aside>
 
       <section className="zalo-chat-card">
-        {!selected ? <div className="zalo-chat-empty"><span><MessageCircleMore size={30} /></span><h2>Chọn một cuộc hội thoại</h2><p>Bấm vào liên hệ bên trái để xem lịch sử đã đồng bộ.</p></div> : <><header className="zalo-chat-header"><span className="zalo-avatar large">{contactInitials(selected.display_name)}</span><div><strong>{selected.display_name}</strong><small>{selected.phone || "Chưa có SĐT"} · {messages.length} tin nhắn đã lưu</small></div><button className="secondary-button" onClick={() => void openOnZalo(selected)} disabled={busy === `open-${selected.id}`}>{busy === `open-${selected.id}` ? <LoaderCircle className="spin" size={16} /> : <ExternalLink size={16} />} Mở trên Zalo</button></header><div className="zalo-chat-history">{loadingMessages && <div className="zalo-chat-loading"><LoaderCircle className="spin" /> Đang tải lịch sử…</div>}{!loadingMessages && !messages.length && <div className="zalo-chat-empty"><span><Link2 size={28} /></span><h2>Chưa có lịch sử</h2><p>Mở đúng cuộc chat trên Zalo Web rồi bấm “Đồng bộ hội thoại đang mở”.</p></div>}{!loadingMessages && messages.map((message) => <div className={`zalo-bubble-row ${message.direction}`} key={message.id}><div className="zalo-bubble"><p>{message.body}</p><small>{messageTime(message)}</small></div></div>)}</div><footer className="zalo-chat-footer"><span>Tin khách mới được tự đồng bộ khi Zalo Web và website đang mở.</span><button className="text-button" onClick={() => void syncCurrentConversation()} disabled={busy === "sync"}><RefreshCw size={14} /> Đồng bộ mới</button></footer></>}
+        {!selected ? <div className="zalo-chat-empty"><span><MessageCircleMore size={30} /></span><h2>Chọn một cuộc hội thoại</h2><p>Bấm vào liên hệ bên trái để xem lịch sử đã đồng bộ.</p></div> : <><header className="zalo-chat-header"><span className="zalo-avatar large">{contactInitials(selected.display_name)}</span><div><strong>{selected.display_name}</strong><small>{selected.phone || "Chưa có SĐT"} · {messages.length} tin nhắn đã lưu</small></div><div className="zalo-chat-header-actions"><button className="primary-button" onClick={openAiWithCurrentChat} disabled={!messages.length || aiLoading}><Sparkles size={16} /> AI xử lý đoạn chat</button><button className="secondary-button" onClick={() => void openOnZalo(selected)} disabled={busy === `open-${selected.id}`}>{busy === `open-${selected.id}` ? <LoaderCircle className="spin" size={16} /> : <ExternalLink size={16} />} Mở trên Zalo</button></div></header><div className="zalo-chat-history">{loadingMessages && <div className="zalo-chat-loading"><LoaderCircle className="spin" /> Đang tải lịch sử…</div>}{!loadingMessages && !messages.length && <div className="zalo-chat-empty"><span><Link2 size={28} /></span><h2>Chưa có lịch sử</h2><p>Mở đúng cuộc chat trên Zalo Web rồi bấm “Đồng bộ hội thoại đang mở”.</p></div>}{!loadingMessages && messages.map((message) => <div className={`zalo-bubble-row ${message.direction}`} key={message.id}><div className="zalo-bubble"><p>{message.body}</p><small>{messageTime(message)}</small></div></div>)}</div><footer className="zalo-chat-footer"><span>Tin khách mới được tự đồng bộ khi Zalo Web và website đang mở.</span><button className="text-button" onClick={() => void syncCurrentConversation()} disabled={busy === "sync"}><RefreshCw size={14} /> Đồng bộ mới</button></footer></>}
       </section>
     </div>
   </section>;
@@ -465,4 +478,24 @@ function databaseMessage(message: string) {
   if (/zalo_ai_suggestions.*does not exist|schema cache/i.test(message)) return "Bảng gợi ý AI chưa có trên Supabase. Hãy chạy lại file supabase_zalo_threads.sql trong SQL Editor.";
   if (/duplicate key|zalo_contacts_phone_key/i.test(message)) return "SĐT hoặc cuộc hội thoại này đã có trong danh bạ.";
   return message;
+}
+
+function buildChatProcessPrompt(contact: ZaloContact, messages: ZaloMessage[]) {
+  const recent = messages.slice(-40);
+  const transcript = recent.map((message) => {
+    const who = message.direction === "incoming" ? "Khách" : message.direction === "outgoing" ? "Shop" : "Hệ thống";
+    const time = message.display_time || message.sent_at || "";
+    return `${who}${time ? ` (${time})` : ""}: ${message.body.trim()}`;
+  }).join("\n");
+
+  return [
+    `Hãy xử lý đoạn chat Zalo hiện tại với khách "${contact.display_name}"${contact.phone ? ` (SĐT ${contact.phone})` : ""}.`,
+    "Dựa trên nội dung chat bên dưới:",
+    "1) Tóm tắt khách đang cần gì.",
+    "2) Tra cứu công nợ liên quan của đúng khách này trong dữ liệu hệ thống.",
+    "3) Đề xuất cách trả lời ngắn và việc cần làm tiếp.",
+    "",
+    "--- Đoạn chat ---",
+    transcript,
+  ].join("\n");
 }
