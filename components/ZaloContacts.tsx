@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -22,9 +23,10 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import type { ZaloContact, ZaloMessage } from "@/lib/types";
+import { collectZaloImages, encodeZaloMessageBody, parseZaloMessageBody, type ZaloMediaUpload } from "@/lib/zalo-message";
 
-const PAGE_SOURCE = "ha-hoa-web-page-v150";
-const EXTENSION_SOURCE = "ha-hoa-zalo-extension-v150";
+const PAGE_SOURCE = "ha-hoa-web-page-v160";
+const EXTENSION_SOURCE = "ha-hoa-zalo-extension-v160";
 
 interface CapturedMessage {
   messageKey: string;
@@ -34,6 +36,7 @@ interface CapturedMessage {
   displayTime?: string;
   sentAt?: string;
   messageType?: "text" | "image" | "file" | "system";
+  mediaUploads?: ZaloMediaUpload[];
   sortOrder: number;
 }
 
@@ -113,7 +116,7 @@ function messageTime(message: ZaloMessage) {
   return new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }).format(new Date(value));
 }
 
-export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: string; onOpenDebtAi: (prompt?: string) => void }) {
+export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: string; onOpenDebtAi: (prompt?: string, imageDataUrls?: string[]) => void }) {
   const [contacts, setContacts] = useState<ZaloContact[]>([]);
   const [messages, setMessages] = useState<ZaloMessage[]>([]);
   const [selected, setSelected] = useState<ZaloContact | null>(null);
@@ -168,7 +171,10 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
       setError(databaseMessage(loadError.message));
       return;
     }
-    const rows = (data || []) as ZaloMessage[];
+    const rows = ((data || []) as ZaloMessage[]).map((message) => {
+      const parsed = parseZaloMessageBody(message.body);
+      return { ...message, body: parsed.text, media_data_urls: parsed.imageDataUrls };
+    });
     rows.sort((a, b) => {
       const timeA = a.sent_at ? new Date(a.sent_at).getTime() : 0;
       const timeB = b.sent_at ? new Date(b.sent_at).getTime() : 0;
@@ -250,12 +256,27 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
     if (contactError || !savedContact) throw new Error(databaseMessage(contactError?.message || "Không lưu được liên hệ Zalo."));
 
     const capturedAt = response.capturedAt || new Date().toISOString();
-    const messageRows = (response.messages || []).filter((message) => message.body.trim()).map((message) => ({
+    const capturedMessages = (response.messages || []).filter((message) => message.body.trim());
+    const missingMediaKeys = capturedMessages
+      .filter((message) => message.messageType === "image" && !message.mediaUploads?.length)
+      .map((message) => message.messageKey);
+    const preservedMediaBodies = new Map<string, string>();
+    for (let start = 0; start < missingMediaKeys.length; start += 100) {
+      const { data: existingMessages, error: existingError } = await supabase.from("zalo_messages")
+        .select("message_key,body")
+        .eq("contact_id", savedContact.id)
+        .in("message_key", missingMediaKeys.slice(start, start + 100));
+      if (existingError) throw new Error(databaseMessage(existingError.message));
+      for (const existingMessage of existingMessages || []) {
+        if (parseZaloMessageBody(existingMessage.body).imageDataUrls.length) preservedMediaBodies.set(existingMessage.message_key, existingMessage.body);
+      }
+    }
+    const messageRows = capturedMessages.map((message) => ({
       contact_id: savedContact.id,
       message_key: message.messageKey,
       direction: message.direction,
       sender_name: message.senderName || null,
-      body: message.body.trim(),
+      body: preservedMediaBodies.get(message.messageKey) || encodeZaloMessageBody(message.body, message.mediaUploads),
       display_time: message.displayTime || null,
       sent_at: message.sentAt || null,
       message_type: message.messageType || "text",
@@ -395,7 +416,8 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
       setError("Hội thoại này chưa có tin nhắn. Đồng bộ chat trên Zalo rồi thử lại.");
       return;
     }
-    onOpenDebtAi(buildChatProcessPrompt(selected, messages));
+    const request = buildChatProcessRequest(selected, messages);
+    onOpenDebtAi(request.prompt, request.imageDataUrls);
   }
 
   async function copySuggestion(value: string) {
@@ -451,7 +473,7 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
     <div className="zalo-toolbar-card">
       <div className="zalo-bridge-state"><span className={extensionReady ? "ready" : "offline"}>{extensionReady ? <CheckCircle2 /> : <Link2 />}</span><div><strong>{extensionReady ? "Đã kết nối Zalo Web" : "Chưa thấy tiện ích Zalo Bridge"}</strong><small>{extensionReady ? `Tự đồng bộ tin khách mới và tạo gợi ý AI${extensionVersion ? ` · Bản ${extensionVersion}` : ""}.` : "Cài tiện ích để tự nhận tin mới từ Zalo Web."}</small></div></div>
       <div className="zalo-toolbar-actions">
-        <a className="secondary-button" href="/zalo-bridge-extension.zip?v=1.5.0" download><Download size={17} /> {extensionReady ? "Cập nhật tiện ích 1.5" : "Tải tiện ích 1.5"}</a>
+        <a className="secondary-button" href="/zalo-bridge-extension.zip?v=1.6.0" download><Download size={17} /> {extensionReady ? "Cập nhật tiện ích 1.6" : "Tải tiện ích 1.6"}</a>
         <a className="secondary-button" href="https://chat.zalo.me/" target="ha_hoa_zalo" rel="noreferrer"><ExternalLink size={17} /> Mở Zalo Web</a>
         <button className="primary-button" onClick={() => void syncCurrentConversation()} disabled={busy === "sync"}>{busy === "sync" ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />} Đồng bộ hội thoại đang mở</button>
       </div>
@@ -487,7 +509,7 @@ export function ZaloContacts({ accessToken, onOpenDebtAi }: { accessToken: strin
       </aside>
 
       <section className="zalo-chat-card">
-        {!selected ? <div className="zalo-chat-empty"><span><MessageCircleMore size={30} /></span><h2>Chọn một cuộc hội thoại</h2><p>Bấm vào liên hệ bên trái để xem lịch sử đã đồng bộ.</p></div> : <><header className="zalo-chat-header"><span className="zalo-avatar large">{contactInitials(selected.display_name)}</span><div><strong>{selected.display_name}</strong><small>{selected.phone || "Chưa có SĐT"} · {messages.length} tin nhắn đã lưu</small></div><div className="zalo-chat-header-actions"><button className="primary-button" onClick={openAiWithCurrentChat} disabled={!messages.length || aiLoading}><Sparkles size={16} /> AI xử lý đoạn chat</button><button className="secondary-button" onClick={() => void openOnZalo(selected)} disabled={busy === `open-${selected.id}`}>{busy === `open-${selected.id}` ? <LoaderCircle className="spin" size={16} /> : <ExternalLink size={16} />} Mở trên Zalo</button></div></header><div className="zalo-chat-history">{loadingMessages && <div className="zalo-chat-loading"><LoaderCircle className="spin" /> Đang tải lịch sử…</div>}{!loadingMessages && !messages.length && <div className="zalo-chat-empty"><span><Link2 size={28} /></span><h2>Chưa có lịch sử</h2><p>Mở đúng cuộc chat trên Zalo Web rồi bấm “Đồng bộ hội thoại đang mở”.</p></div>}{!loadingMessages && messages.map((message) => <div className={`zalo-bubble-row ${message.direction}`} key={message.id}><div className="zalo-bubble"><p>{message.body}</p><small>{messageTime(message)}</small></div></div>)}</div><footer className="zalo-chat-footer"><span>Tin khách mới được tự đồng bộ khi Zalo Web và website đang mở.</span><button className="text-button" onClick={() => void syncCurrentConversation()} disabled={busy === "sync"}><RefreshCw size={14} /> Đồng bộ mới</button></footer></>}
+        {!selected ? <div className="zalo-chat-empty"><span><MessageCircleMore size={30} /></span><h2>Chọn một cuộc hội thoại</h2><p>Bấm vào liên hệ bên trái để xem lịch sử đã đồng bộ.</p></div> : <><header className="zalo-chat-header"><span className="zalo-avatar large">{contactInitials(selected.display_name)}</span><div><strong>{selected.display_name}</strong><small>{selected.phone || "Chưa có SĐT"} · {messages.length} tin nhắn đã lưu</small></div><div className="zalo-chat-header-actions"><button className="primary-button" onClick={openAiWithCurrentChat} disabled={!messages.length || aiLoading}><Sparkles size={16} /> AI xử lý đoạn chat</button><button className="secondary-button" onClick={() => void openOnZalo(selected)} disabled={busy === `open-${selected.id}`}>{busy === `open-${selected.id}` ? <LoaderCircle className="spin" size={16} /> : <ExternalLink size={16} />} Mở trên Zalo</button></div></header><div className="zalo-chat-history">{loadingMessages && <div className="zalo-chat-loading"><LoaderCircle className="spin" /> Đang tải lịch sử…</div>}{!loadingMessages && !messages.length && <div className="zalo-chat-empty"><span><Link2 size={28} /></span><h2>Chưa có lịch sử</h2><p>Mở đúng cuộc chat trên Zalo Web rồi bấm “Đồng bộ hội thoại đang mở”.</p></div>}{!loadingMessages && messages.map((message) => <div className={`zalo-bubble-row ${message.direction}`} key={message.id}><div className="zalo-bubble">{!!message.media_data_urls?.length && <div className="zalo-bubble-media">{message.media_data_urls.map((imageUrl, index) => <a href={imageUrl} target="_blank" rel="noreferrer" key={`${message.id}-image-${index}`}><img src={imageUrl} alt={`Ảnh trong hội thoại với ${selected.display_name}`} loading="lazy" /></a>)}</div>}<p>{message.body}</p><small>{messageTime(message)}</small></div></div>)}</div><footer className="zalo-chat-footer"><span>Tin khách mới được tự đồng bộ khi Zalo Web và website đang mở.</span><button className="text-button" onClick={() => void syncCurrentConversation()} disabled={busy === "sync"}><RefreshCw size={14} /> Đồng bộ mới</button></footer></>}
       </section>
     </div>
   </section>;
@@ -515,15 +537,16 @@ function databaseMessage(message: string) {
   return message;
 }
 
-function buildChatProcessPrompt(contact: ZaloContact, messages: ZaloMessage[]) {
-  const recent = messages.slice(-40);
+function buildChatProcessRequest(contact: ZaloContact, messages: ZaloMessage[]) {
+  const recent = messages.slice(-250);
   const transcript = recent.map((message) => {
     const who = message.direction === "incoming" ? "Khách" : message.direction === "outgoing" ? "Shop" : "Hệ thống";
     const time = message.display_time || message.sent_at || "";
-    return `${who}${time ? ` (${time})` : ""}: ${message.body.trim()}`;
-  }).join("\n");
+    const imageNote = message.media_data_urls?.length ? ` [${message.media_data_urls.length} ảnh đính kèm]` : "";
+    return `${who}${time ? ` (${time})` : ""}: ${message.body.trim()}${imageNote}`;
+  }).join("\n").slice(-45_000);
 
-  return [
+  return { prompt: [
     `Hãy xử lý đoạn chat Zalo hiện tại với khách "${contact.display_name}"${contact.phone ? ` (SĐT ${contact.phone})` : ""}.`,
     "Dựa trên nội dung chat bên dưới:",
     "1) Tóm tắt khách đang cần gì.",
@@ -532,5 +555,5 @@ function buildChatProcessPrompt(contact: ZaloContact, messages: ZaloMessage[]) {
     "",
     "--- Đoạn chat ---",
     transcript,
-  ].join("\n");
+  ].join("\n"), imageDataUrls: collectZaloImages(recent) };
 }

@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "node --test",
     "lint": "eslint .",
     "db:start": "supabase start",
     "db:stop": "supabase stop",

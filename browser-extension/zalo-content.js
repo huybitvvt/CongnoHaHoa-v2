@@ -1,6 +1,6 @@
 (() => {
-  if (globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V150__) return;
-  globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V150__ = true;
+  if (globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V160__) return;
+  globalThis.__HAHOA_ZALO_REFERENCE_CONTENT_V160__ = true;
   const CONTROL_TEXT = /^(aa|soạn|soạn tin nhắn|nhập tin nhắn|nhập @, tin nhắn|message|write a message|type a message|gửi|send|đã gửi|sent|đã xem|seen|đang nhập|typing|zalo|tất cả|all|chưa đọc|unread|tìm kiếm|search|thông báo|notifications|tắt thông báo|mute notifications|trang cá nhân|profile|thông tin|info|file|ảnh|photo|video|sticker|gif|emoji|like)$/i;
   const SYSTEM_TEXT = /^(tin nhắn và cuộc gọi|bạn đã tạo nhóm này|bạn chưa kết nối|các bạn không phải|giờ đây, các bạn|now you can|cuộc gọi|missed call|đã thu hồi|recalled|đã ghim|pinned|đã đổi|changed|đã thêm|added|đã rời|left|sử dụng zalo pc để tìm tin nhắn trước ngày|tải zalo pc)\b/i;
   const MENU_TEXT = /^(đoạn chat|tin nhắn|danh bạ|khám phá|nhật ký|cloud của tôi|zalo ai|todo|media|file phương tiện|quyền riêng tư|privacy|cài đặt|settings|tùy chỉnh|customize)$/i;
@@ -1255,8 +1255,8 @@
       missed: 0,
       totalBytes: 0,
       maxCount: 8,
-      maxItemBytes: 3_200_000,
-      maxTotalBytes: 12_000_000,
+      maxItemBytes: 650_000,
+      maxTotalBytes: 2_400_000,
     };
     const originalBottomGap = Math.max(0, scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop);
     const maxScrolls = Math.max(1, Math.min(Number(payload.maxScrolls || 80), 260));
@@ -1714,6 +1714,11 @@
         displayTime: row.display_time || '',
         sentAt: row.sent_at || '',
         messageType: hahoaMessageType(row.media_type),
+        mediaUploads: (row.media_uploads || []).slice(0, 4).map((upload) => ({
+          dataUrl: upload.data_url || '',
+          contentType: upload.content_type || '',
+          sourceUrl: upload.source_url || '',
+        })).filter((upload) => upload.dataUrl),
         sortOrder: index,
       })),
     };

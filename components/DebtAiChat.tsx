@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Bot, CalendarDays, CheckCircle2, Clipboard, Download, ExternalLink, Link2, LoaderCircle, LogOut, Send, Sparkles, UserRound, X } from "lucide-react";
@@ -12,6 +13,7 @@ interface Props {
   accessToken: string;
   onClose: () => void;
   initialPrompt?: string | null;
+  initialImageDataUrls?: string[];
 }
 
 interface CodexStatus {
@@ -43,7 +45,7 @@ function localIsoDate(date = new Date()) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 }
 
-export function DebtAiChat({ accessToken, onClose, initialPrompt = null }: Props) {
+export function DebtAiChat({ accessToken, onClose, initialPrompt = null, initialImageDataUrls = [] }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME]);
   const [input, setInput] = useState("");
   const [fromDate, setFromDate] = useState(() => localIsoDate());
@@ -159,7 +161,7 @@ export function DebtAiChat({ accessToken, onClose, initialPrompt = null }: Props
       const response = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextMessages.slice(1), from_date: fromDate, to_date: toDate }),
+        body: JSON.stringify({ messages: nextMessages.slice(1), from_date: fromDate, to_date: toDate, image_data_urls: initialImageDataUrls }),
       });
       const data = await response.json() as { message?: string; error?: string; code?: string };
       if (data.code === "CODEX_LOGIN_REQUIRED" || data.code === "CODEX_SESSION_EXPIRED") {
@@ -172,7 +174,7 @@ export function DebtAiChat({ accessToken, onClose, initialPrompt = null }: Props
     } finally {
       setLoading(false);
     }
-  }, [accessToken, fromDate, loading, toDate]);
+  }, [accessToken, fromDate, initialImageDataUrls, loading, toDate]);
 
   async function submit(event?: FormEvent, suggestion?: string) {
     event?.preventDefault();
@@ -263,6 +265,7 @@ export function DebtAiChat({ accessToken, onClose, initialPrompt = null }: Props
         </div>
 
         <div className="ai-messages">
+          {!!initialImageDataUrls.length && <div className="ai-context-media"><strong>{initialImageDataUrls.length} ảnh từ lịch sử Zalo</strong><div>{initialImageDataUrls.map((imageUrl, index) => <img src={imageUrl} alt={`Ảnh Zalo ${index + 1}`} key={`ai-context-image-${index}`} />)}</div></div>}
           {messages.map((message, index) => (
             <div className={`ai-message ${message.role}`} key={`${message.role}-${index}`}>
               <span>{message.role === "assistant" ? <Bot size={17} /> : <UserRound size={17} />}</span>

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Hà Hoà Zalo Bridge",
-  "version": "1.5.0",
-  "description": "Tự đồng bộ tin nhắn Zalo Web mới về Hà Hoà và tạo gợi ý trả lời bằng AI.",
+  "version": "1.6.0",
+  "description": "Đồng bộ văn bản và ảnh Zalo Web về Hà Hoà, tạo gợi ý và gửi trả lời bằng AI.",
   "permissions": ["tabs", "scripting", "storage"],
   "host_permissions": [
     "https://chat.zalo.me/*",

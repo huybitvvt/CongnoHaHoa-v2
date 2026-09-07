@@ -68,6 +68,7 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const [aiChatPrompt, setAiChatPrompt] = useState<string | null>(null);
+  const [aiChatImages, setAiChatImages] = useState<string[]>([]);
   const [modal, setModal] = useState<{ open: boolean; kind: ModalKind; record: EditableRow | null; presetDebtId?: string | null }>({ open: false, kind: "debts", record: null });
   const [saving, setSaving] = useState(false);
 
@@ -275,7 +276,7 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
           <NavButton href={TAB_ROUTES.routes} icon={<Route />} label="Tuyến" active={activeTab === "routes"} onNavigate={() => setMenuOpen(false)} />
           <NavButton href={TAB_ROUTES.sales_routes} icon={<MapPinned />} label="Quản trị Sale theo tuyến" active={activeTab === "sales_routes"} onNavigate={() => setMenuOpen(false)} />
           <NavButton href={TAB_ROUTES.zalo_contacts} icon={<ContactRound />} label="Danh bạ Zalo" active={activeTab === "zalo_contacts"} onNavigate={() => setMenuOpen(false)} />
-          <NavButton icon={<Sparkles />} label="Hỏi AI" active={false} onClick={() => { setAiChatPrompt(null); setAiChatOpen(true); setMenuOpen(false); }} />
+          <NavButton icon={<Sparkles />} label="Hỏi AI" active={false} onClick={() => { setAiChatPrompt(null); setAiChatImages([]); setAiChatOpen(true); setMenuOpen(false); }} />
         </nav>
         <div className="top-actions">
           <button className="icon-button" title="Làm mới" onClick={() => void loadData(true)}><RefreshCw size={19} className={refreshing ? "spin" : ""} /></button>
@@ -294,7 +295,7 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
         {toast && <div className="toast-message">{toast}</div>}
 
         {activeTab === "sales_routes" ? <SalesRouteManagement />
-          : activeTab === "zalo_contacts" ? <ZaloContacts accessToken={session.access_token} onOpenDebtAi={(prompt) => { setAiChatPrompt(prompt || null); setAiChatOpen(true); }} />
+          : activeTab === "zalo_contacts" ? <ZaloContacts accessToken={session.access_token} onOpenDebtAi={(prompt, imageDataUrls = []) => { setAiChatPrompt(prompt || null); setAiChatImages(imageDataUrls); setAiChatOpen(true); }} />
           : activeTab === "customers_list" ? <CustomerListManagement />
           : activeTab === "staff" ? <StaffManagement />
           : activeTab === "routes" ? <RouteManagement />
@@ -349,7 +350,7 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
       </main>
 
       {settingsOpen && <SettingsDrawer settings={settings} onClose={() => setSettingsOpen(false)} onSaved={(next) => { setSettings(next); setToast("Đã cập nhật cấu hình."); setSettingsOpen(false); }} onLogout={() => void supabase.auth.signOut()} />}
-      {aiChatOpen && <DebtAiChat key={aiChatPrompt || "debt-ai"} accessToken={session.access_token} initialPrompt={aiChatPrompt} onClose={() => { setAiChatOpen(false); setAiChatPrompt(null); }} />}
+      {aiChatOpen && <DebtAiChat key={aiChatPrompt || "debt-ai"} accessToken={session.access_token} initialPrompt={aiChatPrompt} initialImageDataUrls={aiChatImages} onClose={() => { setAiChatOpen(false); setAiChatPrompt(null); setAiChatImages([]); }} />}
       {modal.open && <RecordModal key={`${modal.kind}-${modal.record?.id || modal.presetDebtId || "new"}`} open kind={modal.kind} record={modal.record} presetDebtId={modal.presetDebtId} customers={customers} debts={debts} settings={settings} saving={saving} onClose={closeModal} onSave={saveRecord} />}
     </div>
   );

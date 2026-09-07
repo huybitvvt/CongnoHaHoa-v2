@@ -134,6 +134,7 @@ export interface ZaloMessage {
   display_time: string | null;
   sent_at: string | null;
   message_type: "text" | "image" | "file" | "system";
+  media_data_urls?: string[];
   sort_order: number;
   captured_at: string;
 }

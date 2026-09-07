@@ -10,13 +10,19 @@ Bản Next.js + Supabase thay cho `CongnotongkhoHaHoa.html`. Ứng dụng gồm 
 - Cảnh báo khi số lượng khách trong các nhóm không khớp; cho phép tự xếp loại và sao chép báo cáo để gửi qua Zalo/Telegram.
 - Migration `supabase/migrations/20260828020000_sales_route_reports.sql` tạo bảng, RLS và dữ liệu mẫu Hoa – Ba Vì ngày 27/08/2026.
 
-## Trợ lý AI và dữ liệu JSON
+## Trợ lý AI và tải dữ liệu
 
 - Nút `Hỏi AI` mở khung chat truy vấn công nợ trực tiếp từ Supabase.
 - AI dùng Responses API + function tool để chỉ lấy dữ liệu phù hợp với tên khách hàng, Công, khoảng ngày và trạng thái; không gửi toàn bộ database ở mỗi câu hỏi.
 - Có thể đăng nhập ChatGPT/Codex bằng device code ngay trong ô chat. Access/refresh token được mã hoá AES-GCM trong cookie HttpOnly, gắn với UID Supabase và không trả về JavaScript.
-- Nút `Tải JSON` xuất file thật gồm các trường `KH`, `Công`, `Tổng công nợ`, `Ngày nợ`, `Ngày trả`. Endpoint `/api/debts/json` bắt buộc Supabase access token.
+- Nút `Tải CSV` và `Tải JSON` xuất file thật gồm các trường `KH`, `Công`, `Tổng công nợ`, `Ngày nợ`, `Ngày trả`. Endpoint `/api/debts/json` bắt buộc Supabase access token; tham số `format=csv` trả file CSV có BOM để mở đúng tiếng Việt trong Excel.
 - File [examples/cong-no-mau.json](examples/cong-no-mau.json) là dữ liệu giả để kiểm tra cấu trúc, không chứa dữ liệu khách hàng thật.
+
+## Danh bạ và lịch sử Zalo
+
+- Tiện ích Zalo Bridge 1.6 đồng bộ phần lịch sử Zalo Web tải được, gồm văn bản và tối đa tám ảnh đã nén trong mỗi lượt.
+- Website hiển thị và đưa tối đa 250 tin nhắn gần nhất vào ngữ cảnh; tối đa bốn ảnh mới nhất được gửi kèm khi AI xử lý đoạn chat.
+- Cài hoặc cập nhật tiện ích bằng file `public/zalo-bridge-extension.zip`, sau đó tải lại tiện ích, tab Zalo Web và website Hà Hoà.
 
 Đặt các biến server sau trong `.env.local` và Vercel:
 
@@ -89,6 +95,7 @@ Mật khẩu dạng rõ và endpoint Google Apps Script trong HTML cũ không đ
 ## Kiểm tra
 
 ```powershell
+npm test
 npm run lint
 npm run build
 python scripts/parse_workbook.py "Công nợ theo từng nv tháng 4.xlsx" --stats

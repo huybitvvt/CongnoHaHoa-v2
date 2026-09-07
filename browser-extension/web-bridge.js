@@ -1,9 +1,9 @@
 (() => {
-  if (window.__HAHOA_ZALO_WEB_BRIDGE_V150__) return;
-  window.__HAHOA_ZALO_WEB_BRIDGE_V150__ = true;
+  if (window.__HAHOA_ZALO_WEB_BRIDGE_V160__) return;
+  window.__HAHOA_ZALO_WEB_BRIDGE_V160__ = true;
 
-  const PAGE_SOURCE = 'ha-hoa-web-page-v150';
-  const EXTENSION_SOURCE = 'ha-hoa-zalo-extension-v150';
+  const PAGE_SOURCE = 'ha-hoa-web-page-v160';
+  const EXTENSION_SOURCE = 'ha-hoa-zalo-extension-v160';
 
   function respond(message) {
     window.postMessage({ source: EXTENSION_SOURCE, ...message }, window.location.origin);
