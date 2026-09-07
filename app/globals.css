@@ -67,15 +67,15 @@ input:hover, select:hover, textarea:hover { border-color: #b7c5bc; }
 
 .app-loading { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 18px; color: var(--muted); }
 .app-loading img { border-radius: 18px; box-shadow: var(--shadow); }
-.app-shell { min-height: 100vh; }
+.app-shell { min-width: 0; min-height: 100vh; max-width: 100%; overflow-x: clip; }
 .topbar { position: sticky; z-index: 30; top: 0; min-height: 70px; display: flex; align-items: center; gap: clamp(18px, 3vw, 50px); padding: 0 clamp(18px, 4vw, 64px); background: rgba(255,255,255,.94); border-bottom: 1px solid var(--border); backdrop-filter: blur(16px); }
 .brand-mark { display: flex; align-items: center; gap: 11px; min-width: 190px; }
 .brand-mark img { width: 46px; height: 46px; object-fit: cover; border-radius: 10px; }
 .brand-mark div { display: grid; gap: 1px; }
 .brand-mark strong { color: var(--green-900); font-size: 14px; letter-spacing: .06em; }
 .brand-mark span { color: var(--muted); font-size: 11px; }
-.topbar nav { height: 70px; display: flex; align-items: stretch; gap: 4px; }
-.topbar nav button, .topbar nav a { position: relative; display: flex; align-items: center; gap: 8px; padding: 0 13px; color: #5e6a63; background: transparent; border: 0; cursor: pointer; font-weight: 650; text-decoration: none; }
+.topbar nav { min-width: 0; height: 70px; display: flex; flex: 1 1 auto; align-items: stretch; justify-content: center; gap: 4px; }
+.topbar nav button, .topbar nav a { position: relative; display: flex; flex: 0 1 auto; align-items: center; gap: 8px; min-width: 0; padding: 0 13px; color: #5e6a63; background: transparent; border: 0; cursor: pointer; font-weight: 650; text-decoration: none; }
 .topbar nav button svg, .topbar nav a svg { width: 17px; }
 .topbar nav button::after, .topbar nav a::after { position: absolute; content: ""; height: 3px; left: 14px; right: 14px; bottom: 0; border-radius: 4px 4px 0 0; background: transparent; }
 .topbar nav button:hover, .topbar nav button.active, .topbar nav a:hover, .topbar nav a.active { color: var(--green-700); }
@@ -463,14 +463,17 @@ tbody tr:hover td { background: #fbfdfc; }
 .skeleton-card i { height: 36px; background: linear-gradient(90deg, #f0f3f1 20%, #f8faf9 40%, #f0f3f1 60%); background-size: 200% 100%; border-radius: 7px; animation: shimmer 1.4s infinite linear; }
 @keyframes shimmer { to { background-position-x: -200%; } }
 
-@media (max-width: 1250px) {
-  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .filter-grid { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
-  .filter-search { grid-column: span 2; }
+@media (max-width: 1700px) {
   .topbar { gap: 18px; }
   .topbar nav button, .topbar nav a { padding: 0 9px; }
   .topbar nav button span, .topbar nav a span { display: none; }
   .user-menu > div, .user-menu > svg { display: none; }
+}
+
+@media (max-width: 1250px) {
+  .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filter-grid { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
+  .filter-search { grid-column: span 2; }
   .sales-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
