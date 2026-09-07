@@ -20,7 +20,7 @@ function isValidSalesName(value: string) {
 }
 
 export function accountFromName(name: string, usedAccounts: Set<string>) {
-  let base = name
+  const base = name
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/đ/g, "d")

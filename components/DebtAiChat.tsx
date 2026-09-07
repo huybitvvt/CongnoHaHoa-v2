@@ -183,7 +183,8 @@ export function DebtAiChat({ accessToken, onClose, initialPrompt = null }: Props
     if (autoAskedRef.current || !initialPrompt?.trim() || codexLoading || loading) return;
     if (!codexStatus?.authenticated && !codexStatus?.fallback_available) return;
     autoAskedRef.current = true;
-    void askQuestion(initialPrompt, [WELCOME]);
+    const timer = window.setTimeout(() => void askQuestion(initialPrompt, [WELCOME]), 0);
+    return () => window.clearTimeout(timer);
   }, [askQuestion, codexLoading, codexStatus, initialPrompt, loading]);
 
   async function downloadDebtFile(format: "json" | "csv") {
