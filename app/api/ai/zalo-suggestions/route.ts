@@ -14,6 +14,7 @@ interface OutputItem {
 
 interface ProviderResponse {
   output?: OutputItem[];
+  output_text?: string;
   error?: { message?: string };
 }
 
@@ -138,29 +139,42 @@ async function createCodexResponse(accessToken: string, accountId: string, model
   if (!response.ok) throw new CodexOAuthError(`Codex trả về lỗi ${response.status}: ${stream.slice(0, 400)}`, response.status);
   let completed: ProviderResponse | null = null;
   const output: OutputItem[] = [];
+  const textDeltas: string[] = [];
+  let completedText = "";
   for (const line of stream.split(/\r?\n/)) {
     if (!line.startsWith("data:")) continue;
     const raw = line.slice(5).trim();
     if (!raw || raw === "[DONE]") continue;
     try {
-      const event = JSON.parse(raw) as { type?: string; response?: ProviderResponse; item?: OutputItem; error?: unknown };
+      const event = JSON.parse(raw) as { type?: string; response?: ProviderResponse; item?: OutputItem; error?: unknown; delta?: unknown; text?: unknown; part?: unknown };
       if (event.type === "response.completed" && event.response) completed = event.response;
       else if (event.type === "response.output_item.done" && event.item) output.push(event.item);
+      else if (event.type === "response.output_text.delta" && typeof event.delta === "string") textDeltas.push(event.delta);
+      else if (event.type === "response.output_text.done" && typeof event.text === "string") completedText = event.text;
+      else if (event.type === "response.content_part.done" && event.part && typeof event.part === "object") {
+        const part = event.part as Record<string, unknown>;
+        if ((part.type === "output_text" || part.type === "text") && typeof part.text === "string") completedText = part.text;
+      }
       else if (event.type === "response.failed" || event.type === "error") throw new CodexOAuthError(`Codex không xử lý được yêu cầu: ${JSON.stringify(event.error).slice(0, 300)}`, 502);
     } catch (error) {
       if (error instanceof CodexOAuthError) throw error;
     }
   }
-  if (completed?.output?.length) return completed;
-  if (output.length) return { output };
+  const result = completed || { output };
+  const streamedText = (completedText || textDeltas.join("")).trim();
+  if (streamedText && !responseText(result)) {
+    return { ...result, output: [...(result.output || []), { type: "message", content: [{ type: "output_text", text: streamedText }] }] };
+  }
+  if (result.output?.length || result.output_text?.trim()) return result;
   throw new CodexOAuthError("Codex không trả về gợi ý.", 502);
 }
 
 function responseText(response: ProviderResponse) {
+  if (typeof response.output_text === "string" && response.output_text.trim()) return response.output_text.trim();
   const parts: string[] = [];
   for (const item of response.output || []) {
     if (item.type !== "message") continue;
-    for (const content of item.content || []) if (content.type === "output_text" && content.text) parts.push(content.text);
+    for (const content of item.content || []) if ((content.type === "output_text" || content.type === "text") && content.text) parts.push(content.text);
   }
   return parts.join("\n").trim();
 }
