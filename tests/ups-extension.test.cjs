@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
+﻿/* eslint-disable @typescript-eslint/no-require-imports */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -45,26 +45,31 @@ test('semantic current step is used and unknown status is not guessed', () => {
   assert.equal(reader()(doc(code, { '#st_App_PkgSts': [node('Something new')] }), code), null);
 });
 
-function background({ result = { ok: true, code, status: 'Đã giao hàng' }, redirected = false } = {}) {
+function background({ result = { ok: true, code, status: 'Đã giao hàng' }, redirected = false, existing = false, failReads = 0 } = {}) {
   let listener;
   let release;
   const removed = [];
   let created = 0;
+  let reads = 0;
   const chrome = {
     runtime: { onMessage: { addListener: (fn) => { listener = fn; } }, getManifest: () => ({ version: '0.1.0' }) },
     tabs: {
+      query: async () => existing ? [{ id: 123, url: `https://www.ups.com/track?tracknum=${code}&requester=ST/trackdetails` }] : [],
       create: () => { created++; return new Promise((resolve) => { release = () => resolve({ id: 123 }); }); },
       get: async () => ({ status: 'complete', url: redirected ? 'https://www.ups.com/login' : `https://www.ups.com/track?loc=en_US&tracknum=${code}` }),
       remove: async (id) => removed.push(id),
     },
-    scripting: { executeScript: async (options) => options.files ? [] : [{ result }] },
+    scripting: { executeScript: async () => {
+      if (reads++ < failReads) throw new Error('Frame with ID 0 is showing error page');
+      return [{ result }];
+    } },
   };
   const context = { chrome, URL, importScripts() {}, setTimeout: (fn) => { fn(); return 1; } };
   vm.runInNewContext(fs.readFileSync(path.join(root, 'background.js'), 'utf8'), context);
   const sender = { url: 'https://cong-no-ha-hoa-jade.vercel.app/tracking-ups', frameId: 0, tab: { id: 9 } };
   return {
     send: (message, from = sender) => new Promise((resolve) => listener({ type: 'HAHOA_UPS', ...message }, from, resolve)),
-    release: () => release(), removed, count: () => created,
+    release: async () => { await new Promise(setImmediate); release(); }, removed, count: () => created, reads: () => reads,
   };
 }
 test('rejects untrusted origins, iframe messages and invalid codes before opening tabs', async () => {
@@ -80,8 +85,9 @@ test('serializes requests across app tabs and closes only its own successful tab
   const bg = background();
   const pending = bg.send({ action: 'track', code });
   await Promise.resolve();
+  await Promise.resolve();
   assert.equal((await bg.send({ action: 'track', code })).fatal, true);
-  bg.release();
+  await bg.release();
   assert.equal((await pending).ok, true);
   assert.deepEqual(bg.removed, [123]);
   assert.equal(bg.count(), 1);
@@ -90,8 +96,29 @@ test('keeps tab and reports a fatal result when UPS asks for verification or red
   for (const options of [{ result: { ok: false, fatal: true, error: 'Verification' } }, { redirected: true }]) {
     const bg = background(options);
     const pending = bg.send({ action: 'track', code });
-    await Promise.resolve(); bg.release();
+    await Promise.resolve(); await Promise.resolve(); await bg.release();
     assert.equal((await pending).fatal, true);
     assert.deepEqual(bg.removed, []);
   }
 });
+
+test('reuses matching loaded UPS tab and never closes a user tab', async () => {
+  const bg = background({ existing: true });
+  assert.equal((await bg.send({ action: 'track', code })).ok, true);
+  assert.equal(bg.count(), 0);
+  assert.deepEqual(bg.removed, []);
+});
+
+test('retries transient frame errors while UPS is navigating', async () => {
+  const bg = background({ existing: true, failReads: 2 });
+  assert.equal((await bg.send({ action: 'track', code })).ok, true);
+  assert.equal(bg.reads(), 3);
+});
+
+test('reads heading in compact tracking banner, excluding generic page headings', () => {
+  const heading = { ...node('Delivered'), parentElement: { innerText: `Delivered ${code}` } };
+  assert.equal(reader()(doc(code, { 'h1, h2, h3, [role="heading"]': [heading] }), code).rawStatus, 'Delivered');
+  heading.parentElement.innerText = `x`.repeat(300) + code;
+  assert.equal(reader()(doc(code, { 'h1, h2, h3, [role="heading"]': [heading] }), code), null);
+});
+

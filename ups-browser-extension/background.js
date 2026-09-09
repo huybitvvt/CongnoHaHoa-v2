@@ -16,11 +16,19 @@ function allowedSender(sender) {
 
 async function track(code) {
   let tabId;
+  let ownsTab = false;
   let keepTab = false;
+  let lastReadError = '';
   try {
     await pause(Math.max(0, 3000 - (Date.now() - lastStarted)));
     lastStarted = Date.now();
-    const tab = await chrome.tabs.create({ url: `https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(code)}`, active: false });
+    const openTabs = await chrome.tabs.query({ url: 'https://www.ups.com/*' });
+    const existing = openTabs.find((item) => {
+      try { return new URL(item.url).searchParams.get('tracknum')?.toUpperCase() === code; }
+      catch { return false; }
+    });
+    const tab = existing || await chrome.tabs.create({ url: `https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(code)}`, active: false });
+    ownsTab = !existing;
     tabId = tab.id;
     const deadline = Date.now() + 45000;
     while (Date.now() < deadline) {
@@ -28,15 +36,28 @@ async function track(code) {
       // Extension API calls keep this bounded request alive in MV3.
       const current = await chrome.tabs.get(tabId);
       if (current.status !== 'complete') continue;
+      if (!current.url || current.url === 'about:blank') continue;
       const url = new URL(current.url);
       if (url.origin !== 'https://www.ups.com' || url.searchParams.get('tracknum')?.toUpperCase() !== code) {
         keepTab = true;
         return { ok: false, fatal: true, error: 'UPS chuyển sang trang khác. Kiểm tra tab UPS rồi thử lại.' };
       }
-      await chrome.scripting.executeScript({ target: { tabId }, files: ['reader.js'] });
-      const results = await chrome.scripting.executeScript({
-        target: { tabId }, func: (value) => globalThis.readUpsDocument(document, value), args: [code],
-      });
+      let results;
+      try {
+        // One injection: navigation between injecting a file and invoking it cannot erase the reader.
+        results = await chrome.scripting.executeScript({
+          target: { tabId }, func: globalThis.readUpsDocument, args: [null, code],
+        });
+        lastReadError = '';
+      } catch (error) {
+        lastReadError = String(error?.message || error).slice(0, 220);
+        if (/cannot access contents|missing host permission|extensions gallery cannot be scripted/i.test(lastReadError)) {
+          keepTab = true;
+          return { ok: false, fatal: true, error: `Chưa được quyền đọc UPS. Trong quản lý tiện ích, cho phép truy cập www.ups.com rồi thử lại. Chi tiết: ${lastReadError}` };
+        }
+        // UPS can briefly navigate through an error/intermediate document before rendering.
+        continue;
+      }
       const result = results[0]?.result;
       if (result) {
         keepTab = result.fatal === true;
@@ -44,13 +65,13 @@ async function track(code) {
       }
     }
     keepTab = true;
-    return { ok: false, fatal: true, error: 'Chưa đọc được trạng thái sau 45 giây. Kiểm tra tab UPS (cookie, xác minh hoặc giao diện thay đổi), rồi thử lại.' };
+    return { ok: false, fatal: true, error: 'Chưa đọc được trạng thái sau 45 giây. Giữ tab UPS đã tải xong rồi bấm Thử lại mã lỗi.' + (lastReadError ? ` Chi tiết: ${lastReadError}` : ' Nếu UPS đã hiện trạng thái, cần kiểm tra vùng dữ liệu trên trang.') };
   } catch (error) {
     keepTab = true;
     console.warn('UPS tracking failed:', error instanceof Error ? error.message : String(error));
-    return { ok: false, fatal: true, error: 'Không truy cập được tab UPS. Kiểm tra quyền tiện ích và kết nối rồi thử lại.' };
+    return { ok: false, fatal: true, error: `Không truy cập được tab UPS. Giữ tab UPS mở rồi thử lại. Chi tiết: ${String(error?.message || error).slice(0, 220)}` };
   } finally {
-    if (Number.isInteger(tabId) && !keepTab) await chrome.tabs.remove(tabId).catch(() => {});
+    if (ownsTab && Number.isInteger(tabId) && !keepTab) await chrome.tabs.remove(tabId).catch(() => {});
     busy = false;
   }
 }

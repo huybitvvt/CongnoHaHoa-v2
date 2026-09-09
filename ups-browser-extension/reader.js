@@ -1,5 +1,6 @@
 /* Runs in the isolated extension world. Never infer status from the full milestone list. */
 function readUpsDocument(doc, code) {
+  doc = doc || document;
   const visible = (node) => node && node.getClientRects().length > 0;
   const body = doc.body?.innerText || '';
   if (/access denied|verify you are human|verify you're human|unusual traffic|robot verification|security check|temporarily blocked/i.test(body)) {
@@ -17,6 +18,16 @@ function readUpsDocument(doc, code) {
     '[id^="st_App_PkgSts"]',
   ];
   let candidates = selectors.flatMap((selector) => [...doc.querySelectorAll(selector)]).filter(visible);
+  // New UPS layout: status heading and tracking number share a compact banner.
+  if (!candidates.length) candidates = [...doc.querySelectorAll('h1, h2, h3, [role="heading"]')].filter((heading) => {
+    if (!visible(heading)) return false;
+    let parent = heading.parentElement;
+    for (let depth = 0; parent && depth < 3; depth++, parent = parent.parentElement) {
+      const text = (parent.innerText || '').trim();
+      if (text.length <= 250 && new RegExp(`(?:^|[^A-Z0-9])${code}(?:$|[^A-Z0-9])`).test(text.toUpperCase())) return true;
+    }
+    return false;
+  });
   // Semantic current markers are allowed; ordinary timeline labels are not.
   if (!candidates.length) candidates = [...doc.querySelectorAll('[aria-current="step"], [aria-current="true"]')].filter(visible);
   const statuses = new Map([

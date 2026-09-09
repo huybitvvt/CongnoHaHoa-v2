@@ -1,4 +1,10 @@
-# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.0
+# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.1
+
+## Cập nhật từ 0.1.0
+
+Tải ZIP mới, giải nén và thay toàn bộ file trong thư mục tiện ích đã cài. Mở trang quản lý tiện ích, bấm Tải lại, rồi tải lại trang Hà Hoà. Kiểm tra phải hiện **Đã kết nối UPS 0.1.1**. Giữ tab UPS đang hiển thị đúng mã mở rồi bấm **Thử lại mã lỗi**.
+
+Bản 0.1.1 dùng lại tab đúng mã, không đóng tab người dùng; đọc DOM trong một lần chèn script để tránh mất hàm khi trang điều hướng; thử lại lỗi frame tạm thời trong 45 giây; hiển thị chi tiết lỗi quyền/truy cập; hỗ trợ tiêu đề trạng thái trong banner nhỏ chứa đúng mã. Đã qua 12 test UPS và test bridge Edge với DOM giả lập. Chưa xác nhận trên phiên UPS thật của người dùng.
 
 Không cần UPS API key. Extension đọc DOM hiển thị trên trang tracking công khai, chỉ khi người dùng bấm cập nhật. Cần kiểm chứng selector trên UPS thực tế trước khi coi là dùng ổn định.
 
@@ -15,7 +21,7 @@ Tiện ích này cài riêng với Zalo Bridge. Chỉ cho phép hai domain Hà H
 ## Hoạt động và giới hạn
 
 - Một mã một lần trên toàn extension; khoảng cách bắt đầu ít nhất 3 giây. Mỗi mã chờ tối đa khoảng 45 giây sau khi tạo tab.
-- Tab UPS mở ở nền, không giành focus. Tab thành công tự đóng. Khi UPS yêu cầu xác minh, chuyển trang hoặc không xác định được trạng thái, giữ tab để người dùng kiểm tra và dừng hàng đợi.
+- Dùng lại tab UPS đúng mã nếu đang mở, nếu chưa có thì mở tab ở nền, không giành focus. Chỉ tab do tiện ích tạo mới tự đóng khi thành công. Khi UPS yêu cầu xác minh, chuyển trang hoặc không xác định được trạng thái, giữ tab để người dùng kiểm tra và dừng hàng đợi.
 - Chỉ đọc trạng thái từ vùng trạng thái riêng hoặc dấu `aria-current`; không suy luận từ danh sách các mốc tiến trình. Phải thấy đúng mã vận đơn trong nội dung trang. Trạng thái mới/lạ báo không đọc được, không đoán.
 - Không đọc cookie/token, không gọi API riêng của UPS và không vượt CAPTCHA. Có thể cần người dùng xử lý cookie/xác minh tại tab UPS.
 - Giữ trang Hà Hoà và trình duyệt mở; rời trang dừng các mã tiếp theo. Nút Dừng chờ mã hiện tại kết thúc. Không tự chạy lại sau khi đóng/mở trình duyệt.
