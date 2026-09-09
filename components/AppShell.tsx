@@ -291,7 +291,7 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
           </SidebarSection>
           <SidebarSection title="Kết nối & tiện ích">
             <NavButton href={TAB_ROUTES.zalo_contacts} icon={<ContactRound />} label="Danh bạ Zalo" active={activeTab === "zalo_contacts"} onNavigate={() => setMenuOpen(false)} />
-            <NavButton href={TAB_ROUTES.ups_tracking} icon={<ReceiptText />} label="Tracking UPS" active={activeTab === "ups_tracking"} onNavigate={() => setMenuOpen(false)} />
+            <NavButton href={TAB_ROUTES.ups_tracking} icon={<ReceiptText />} label="Đơn hàng UPS" active={activeTab === "ups_tracking"} onNavigate={() => setMenuOpen(false)} />
             <NavButton icon={<Sparkles />} label="Trợ lý công nợ AI" active={false} onClick={() => { setAiChatPrompt(null); setAiChatImages([]); setAiChatOpen(true); setMenuOpen(false); }} />
           </SidebarSection>
         </div>
@@ -498,7 +498,7 @@ async function fetchPaged(
 
 function initials(value: string) { return value.split(/[\s@]+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function pageTitle(tab: TabKey) {
-  if (tab === "ups_tracking") return "Tracking UPS";
+  if (tab === "ups_tracking") return "Đơn hàng";
   if (tab === "debts") return "Khách hàng nợ";
   if (tab === "payments") return "Khách hàng trả nợ";
   if (tab === "returns") return "Hàng thu hồi";
@@ -510,7 +510,7 @@ function pageTitle(tab: TabKey) {
   return "Tổng quan công nợ";
 }
 function pageDescription(tab: TabKey) {
-  if (tab === "ups_tracking") return "Tra cứu lần lượt mã UPS và cập nhật trạng thái ngay trong bảng.";
+  if (tab === "ups_tracking") return "Tất cả đơn hàng, mã vận đơn và tiến độ giao hàng UPS trong một bảng.";
   if (tab === "sales_routes") return "Theo dõi kết quả gọi khách, doanh thu, phản hồi thị trường và kế hoạch bán hàng từng tuyến.";
   if (tab === "zalo_contacts") return "Lưu liên hệ và mở đúng cuộc hội thoại trên Zalo Web chỉ bằng một lần bấm.";
   if (tab === "payments") return "Xem khoản nợ chưa tất toán, ghi nhận thanh toán và theo dõi lịch sử trả cho từng khách hàng.";
