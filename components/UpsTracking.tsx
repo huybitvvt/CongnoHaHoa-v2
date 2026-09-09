@@ -2,6 +2,7 @@
 
 import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Check, FileText, House, MoreVertical, Package, Search, Truck, X } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 type TrackingEvent = {
   status: string;
@@ -13,6 +14,7 @@ type TrackingEvent = {
 };
 
 type Row = {
+  id?: string;
   code: string;
   orderId?: string;
   customerName?: string;
@@ -41,6 +43,23 @@ type OrderDraft = {
 
 type Response = Partial<Row> & { ok: boolean; fatal?: boolean; version?: string };
 type ShipmentStep = 1 | 2 | 3 | 4 | 5;
+
+type SpeegoRecord = {
+  id: string;
+  order_id: string;
+  tracking_code: string;
+  customer_name: string | null;
+  phone: string | null;
+  order_date: string;
+  amount: number | string | null;
+  edd: string | null;
+  collected: boolean;
+  status: string | null;
+  raw_status: string | null;
+  checked_at: string | null;
+  error: string | null;
+  history: unknown;
+};
 
 const UPS_EXTENSION_VERSION = "0.3.0";
 const usd = new Intl.NumberFormat("vi-VN", { style: "currency", currency: "USD" });
@@ -102,6 +121,7 @@ function normalizeSavedRow(value: unknown): Row | null {
   if (!/^[A-Z0-9]{7,34}$/.test(code)) return null;
   const amount = Number(record.amount);
   return {
+    id: cleanString(record.id, 50) || undefined,
     code,
     orderId: cleanString(record.orderId, 32) || defaultOrderId(code),
     customerName: cleanString(record.customerName, 120) || undefined,
@@ -115,6 +135,45 @@ function normalizeSavedRow(value: unknown): Row | null {
     checkedAt: cleanString(record.checkedAt, 50) || undefined,
     error: cleanString(record.error, 500) || undefined,
     history: normalizeHistory(record.history),
+  };
+}
+
+function fromSpeegoRecord(record: SpeegoRecord): Row {
+  const amount = Number(record.amount);
+  return {
+    id: record.id,
+    code: record.tracking_code,
+    orderId: record.order_id,
+    customerName: record.customer_name || undefined,
+    phone: record.phone || undefined,
+    createdAt: record.order_date,
+    amount: record.amount != null && Number.isFinite(amount) ? amount : undefined,
+    edd: record.edd || undefined,
+    collected: record.collected,
+    status: record.status || undefined,
+    rawStatus: record.raw_status || undefined,
+    checkedAt: record.checked_at || undefined,
+    error: record.error || undefined,
+    history: normalizeHistory(record.history),
+  };
+}
+
+function toSpeegoRecord(row: Row) {
+  return {
+    order_id: row.orderId || defaultOrderId(row.code),
+    tracking_code: row.code,
+    carrier: "UPS",
+    customer_name: row.customerName || null,
+    phone: row.phone || null,
+    order_date: row.createdAt || today(),
+    amount: row.amount ?? null,
+    edd: row.edd || null,
+    collected: row.collected === true,
+    status: row.status || null,
+    raw_status: row.rawStatus || null,
+    checked_at: row.checkedAt || null,
+    error: row.error || null,
+    history: row.history || [],
   };
 }
 
@@ -189,6 +248,7 @@ export function UpsTracking({ userId }: { userId: string }) {
   const [activeCodes, setActiveCodes] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
   const [connection, setConnection] = useState("Chưa kiểm tra kết nối");
+  const [database, setDatabase] = useState("Đang kết nối bảng speego");
   const [createOpen, setCreateOpen] = useState(false);
   const [draft, setDraft] = useState<OrderDraft>(emptyDraft);
   const [search, setSearch] = useState("");
@@ -202,10 +262,42 @@ export function UpsTracking({ userId }: { userId: string }) {
   useEffect(() => {
     mounted.current = true;
     const timer = window.setTimeout(() => {
+      let cached: Row[] = [];
       try {
         const saved = JSON.parse(localStorage.getItem(storageKey) || "[]");
-        if (Array.isArray(saved)) setRows(saved.map(normalizeSavedRow).filter((row): row is Row => Boolean(row)).slice(0, 500));
+        if (Array.isArray(saved)) {
+          cached = saved.map(normalizeSavedRow).filter((row): row is Row => Boolean(row)).slice(0, 500);
+          setRows(cached);
+        }
       } catch { setNotice("Không đọc được bảng đã lưu trên trình duyệt."); }
+      void (async () => {
+        const select = "id,order_id,tracking_code,customer_name,phone,order_date,amount,edd,collected,status,raw_status,checked_at,error,history";
+        const { data, error } = await supabase.from("speego").select(select).order("created_at", { ascending: false }).limit(500);
+        if (!mounted.current) return;
+        if (error) {
+          setDatabase("Chưa kết nối được bảng speego");
+          setNotice(`Supabase chưa sẵn sàng: ${error.message}. Dữ liệu tạm thời vẫn được giữ trên trình duyệt.`);
+          return;
+        }
+        const databaseRows = (data as unknown as SpeegoRecord[]).map(fromSpeegoRecord);
+        const databaseCodes = new Set(databaseRows.map((row) => row.code));
+        const missing = cached.filter((row) => !databaseCodes.has(row.code));
+        let migrationFailed = false;
+        if (missing.length) {
+          const { error: migrationError } = await supabase.from("speego")
+            .upsert(missing.map(toSpeegoRecord), { onConflict: "tracking_code", ignoreDuplicates: true });
+          if (!mounted.current) return;
+          if (migrationError) {
+            migrationFailed = true;
+            setNotice(`Không chuyển được ${missing.length} đơn cũ lên Supabase: ${migrationError.message}`);
+          }
+        }
+        const mergedRows = [...databaseRows, ...missing].slice(0, 500);
+        setRows(mergedRows);
+        try { localStorage.setItem(storageKey, JSON.stringify(mergedRows)); }
+        catch { setNotice("Không lưu được bản sao dữ liệu Supabase trên trình duyệt."); }
+        setDatabase(migrationFailed ? "Có dữ liệu cũ chưa đồng bộ Supabase" : "Đồng bộ Supabase · bảng speego");
+      })();
       void request("ping").then((response) => {
         if (mounted.current) setConnection(connectionLabel(response));
       });
@@ -239,6 +331,18 @@ export function UpsTracking({ userId }: { userId: string }) {
     catch { setNotice("Không lưu được vào trình duyệt. Hãy xuất CSV để giữ kết quả."); }
   }
 
+  async function persistRows(changed: Row[]) {
+    if (!changed.length) return "";
+    const { error } = await supabase.from("speego")
+      .upsert(changed.map(toSpeegoRecord), { onConflict: "tracking_code" });
+    if (error) {
+      setDatabase("Lỗi đồng bộ bảng speego");
+      return error.message;
+    }
+    setDatabase("Đồng bộ Supabase · bảng speego");
+    return "";
+  }
+
   function inputCodes() {
     const codes = [...new Set(input.toUpperCase().split(/[\s,;]+/).filter(Boolean))];
     const invalid = codes.filter((code) => !/^[A-Z0-9]{7,34}$/.test(code));
@@ -261,14 +365,19 @@ export function UpsTracking({ userId }: { userId: string }) {
       collected: markCollected,
     }));
     if (rows.length + added.length > 500) { setNotice("Mỗi bảng tối đa 500 đơn."); return; }
-    save([...rows.map((row) => markCollected && selectedCodes.has(row.code) ? { ...row, collected: true } : row), ...added]);
+    const next = [...rows.map((row) => markCollected && selectedCodes.has(row.code) ? { ...row, collected: true } : row), ...added];
+    save(next);
+    const changed = markCollected ? next.filter((row) => selectedCodes.has(row.code)) : added;
+    void persistRows(changed).then((error) => {
+      if (error) setNotice(`Đã lưu trên trình duyệt nhưng chưa đồng bộ Supabase: ${error}`);
+    });
     setInput("");
     setNotice(markCollected
       ? `Đã đánh dấu ${codes.length} đơn là đã thu tiền; thêm mới ${added.length} đơn.`
       : `Đã thêm ${added.length} đơn; bỏ qua vận đơn trùng.`);
   }
 
-  function createOrder(event: FormEvent<HTMLFormElement>) {
+  async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (running) { setNotice("Đợi lượt tra hiện tại hoàn tất rồi thêm đơn mới."); return; }
     const code = draft.code.trim().toUpperCase();
@@ -291,14 +400,21 @@ export function UpsTracking({ userId }: { userId: string }) {
       history: [],
     };
     save([row, ...rows]);
+    const syncError = await persistRows([row]);
     setCreateOpen(false);
     setDraft(emptyDraft());
-    setNotice(`Đã thêm đơn ${orderId} vào bảng.`);
+    setNotice(syncError
+      ? `Đã thêm đơn ${orderId} trên trình duyệt nhưng chưa đồng bộ Supabase: ${syncError}`
+      : `Đã thêm và lưu đơn ${orderId} vào bảng speego.`);
   }
 
-  function toggleCollected(code: string) {
+  async function toggleCollected(code: string) {
     if (running) return;
-    save(rows.map((row) => row.code === code ? { ...row, collected: !row.collected } : row));
+    const next = rows.map((row) => row.code === code ? { ...row, collected: !row.collected } : row);
+    save(next);
+    const changed = next.find((row) => row.code === code);
+    const syncError = changed ? await persistRows([changed]) : "";
+    if (syncError) setNotice(`Chưa đồng bộ trạng thái thu tiền lên Supabase: ${syncError}`);
   }
 
   async function run() {
@@ -309,6 +425,7 @@ export function UpsTracking({ userId }: { userId: string }) {
     let next = [...rows];
     let successful = 0;
     let failed = 0;
+    let syncFailed = 0;
     try {
       const ping = await request("ping");
       if (!mounted.current) return;
@@ -337,9 +454,12 @@ export function UpsTracking({ userId }: { userId: string }) {
           next = next.map((item) => item.code === row.code ? { ...item, error: result.error || "Kết quả không khớp mã yêu cầu." } : item);
         }
         save(next);
+        const changed = next.find((item) => item.code === row.code);
+        if (changed && await persistRows([changed])) syncFailed++;
         setActiveCodes((codes) => codes.filter((code) => code !== row.code));
       }));
-      setNotice(`Đã tra đồng thời ${candidates.length} vận đơn: ${successful} thành công, ${failed} lỗi. Kết quả đã được lưu.`);
+      setDatabase(syncFailed ? `Có ${syncFailed} đơn chưa đồng bộ Supabase` : "Đồng bộ Supabase · bảng speego");
+      setNotice(`Đã tra đồng thời ${candidates.length} vận đơn: ${successful} thành công, ${failed} lỗi.${syncFailed ? ` ${syncFailed} kết quả chưa lưu được lên Supabase.` : " Kết quả đã lưu vào bảng speego."}`);
     } finally {
       locked.current = false;
       if (mounted.current) { setRunning(false); setActiveCodes([]); }
@@ -369,16 +489,21 @@ export function UpsTracking({ userId }: { userId: string }) {
       : [...new Set([...selected, ...visibleCodes])]);
   }
 
-  function removeSelected() {
+  async function removeSelected() {
     if (!selected.length || !window.confirm(`Xóa ${selected.length} đơn đã chọn khỏi bảng?`)) return;
     save(rows.filter((row) => !selected.includes(row.code)));
+    const { error } = await supabase.from("speego").delete().in("tracking_code", selected);
+    if (error) {
+      setDatabase("Lỗi đồng bộ bảng speego");
+      setNotice(`Đã xóa trên trình duyệt nhưng chưa xóa được ở Supabase: ${error.message}`);
+    }
     setSelected([]);
   }
 
   return <section className="ups-tracking ups-orders-page">
     <div className="ups-order-tools">
       <div className="ups-order-tools-main">
-        <div className="ups-connection-state"><i className={connection.startsWith("Đã kết nối") ? "connected" : ""} /><div><strong>{connection}</strong><small>Tiện ích tra đồng thời các vận đơn chưa có kết quả</small></div></div>
+        <div className="ups-connection-state"><i className={connection.startsWith("Đã kết nối") && database.startsWith("Đồng bộ") ? "connected" : ""} /><div><strong>{connection}</strong><small>{database} · Tiện ích tra đồng thời các vận đơn chưa có kết quả</small></div></div>
         <div className="ups-order-tool-actions">
           <a className="secondary-button" href={`/ups-tracking-extension.zip?v=${UPS_EXTENSION_VERSION}`} download>Tải tiện ích</a>
           <button className="secondary-button" disabled={running} onClick={async () => {
@@ -398,8 +523,17 @@ export function UpsTracking({ userId }: { userId: string }) {
           <div className="ups-actions">
             <button className="secondary-button" disabled={running || !input.trim()} onClick={() => addCodes()}>Thêm vào bảng</button>
             <button className="collected-button" disabled={running || !input.trim()} onClick={() => addCodes(true)}>Thêm &amp; đánh dấu đã thu tiền</button>
-            <button className="text-button" disabled={running || !rows.length} onClick={() => {
-              if (window.confirm("Xóa toàn bộ bảng đơn hàng trên trình duyệt này?")) { save([]); setSelected([]); }
+            <button className="text-button" disabled={running || !rows.length} onClick={async () => {
+              if (window.confirm("Xóa toàn bộ bảng đơn hàng khỏi SpeeGo và Supabase?")) {
+                const codes = rows.map((row) => row.code);
+                save([]);
+                setSelected([]);
+                const { error } = await supabase.from("speego").delete().in("tracking_code", codes);
+                if (error) {
+                  setDatabase("Lỗi đồng bộ bảng speego");
+                  setNotice(`Đã xóa trên trình duyệt nhưng chưa xóa được ở Supabase: ${error.message}`);
+                }
+              }
             }}>Xóa bảng</button>
           </div>
         </div>
