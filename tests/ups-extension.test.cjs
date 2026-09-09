@@ -25,6 +25,22 @@ test('reads only explicit current status, preserving original text', () => {
   assert.equal(result.code, code);
   assert.equal(result.rawStatus, 'On the Way');
 });
+test('reads an explicit UPS estimated delivery date as ISO EDD', () => {
+  const result = reader()(doc([
+    code, 'On the Way', 'Estimated Delivery', 'Wednesday, September 16, 2026',
+  ].join('\n'), { '#st_App_PkgSts': [node('On the Way')] }), code);
+  assert.equal(result.edd, '2026-09-16');
+});
+test('does not guess EDD from history dates or unavailable delivery text', () => {
+  const historyOnly = reader()(doc(`${code}\nOn the Way\n09/09/2026\n8:10 A.M.`, {
+    '#st_App_PkgSts': [node('On the Way')],
+  }), code);
+  const unavailable = reader()(doc(`${code}\nOn the Way\nThe delivery date will be provided as soon as possible`, {
+    '#st_App_PkgSts': [node('On the Way')],
+  }), code);
+  assert.equal(historyOnly.edd, undefined);
+  assert.equal(unavailable.edd, undefined);
+});
 test('reads every dated UPS journey event without replacing the explicit current status', () => {
   const timeline = node([
     'Wednesday, August 19, 2026', '3:08 P.M.', 'Delivered', 'Left at the Front Door', 'NAVARRE, FL, US',

@@ -7,7 +7,7 @@
     const code = String(message.code || '').trim().toUpperCase();
     try {
       if (typeof globalThis.readUpsDocument !== 'function') {
-        respond({ pending: true, reason: 'READER_NOT_READY', readerVersion: '0.3.0' });
+        respond({ pending: true, reason: 'READER_NOT_READY', readerVersion: '0.3.1' });
         return false;
       }
       respond(globalThis.readUpsDocument(null, code, true));

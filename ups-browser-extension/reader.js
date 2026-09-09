@@ -10,7 +10,7 @@ function readUpsDocument(doc, code, diagnose = false) {
     }
   }
   doc = doc || document;
-  const READER_VERSION = '0.3.0';
+  const READER_VERSION = '0.3.1';
   const pending = (reason) => diagnose ? { pending: true, reason, readerVersion: READER_VERSION } : null;
   const visible = (node) => node && typeof node.getClientRects === 'function' && node.getClientRects().length > 0;
   const queryAll = (root, selector) => {
@@ -98,6 +98,51 @@ function readUpsDocument(doc, code, diagnose = false) {
   };
   const extractDate = (text) => compact(text).match(datePattern)?.[0];
   const extractTime = (text) => compact(text).match(timePattern)?.[0];
+  const isoDate = (year, month, day) => {
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) return undefined;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  };
+  const estimatedDateFromText = (value) => {
+    const text = compact(value);
+    if (!text || /provided as soon as possible|not (?:yet )?available|unavailable|pending|to be determined|cannot be determined/i.test(text)) return undefined;
+    const direct = text.match(/\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
+    if (direct) return isoDate(Number(direct[1]), Number(direct[2]), Number(direct[3]));
+    const numeric = text.match(/\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})\b/);
+    if (numeric) return isoDate(Number(numeric[3]), Number(numeric[1]), Number(numeric[2]));
+    const monthNames = ['january', 'february', 'march', 'april', 'may', 'june',
+      'july', 'august', 'september', 'october', 'november', 'december'];
+    const named = text.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:,\s*(\d{4}))?\b/i);
+    if (!named) return undefined;
+    const month = monthNames.indexOf(named[1].toLowerCase()) + 1;
+    const day = Number(named[2]);
+    let year = named[3] ? Number(named[3]) : new Date().getFullYear();
+    let result = isoDate(year, month, day);
+    if (!named[3] && result) {
+      const candidate = Date.parse(`${result}T12:00:00Z`);
+      if (candidate < Date.now() - 45 * 24 * 60 * 60 * 1000) result = isoDate(++year, month, day);
+    }
+    return result;
+  };
+  const estimatedDeliverySelectors = [
+    '[data-testid*="estimated-delivery"]', '[data-testid*="scheduled-delivery"]',
+    '[id*="estimatedDelivery"]', '[id*="scheduledDelivery"]',
+    '[class*="estimated-delivery"]', '[class*="scheduled-delivery"]',
+  ];
+  const estimatedDeliveryTexts = estimatedDeliverySelectors.flatMap((selector) => queryAll(doc, selector))
+    .filter(visible).flatMap((node) => {
+      const own = compact(cleanNodeText(node) || node.getAttribute?.('aria-label'));
+      const sibling = compact(cleanNodeText(node.nextElementSibling));
+      const parent = compact(cleanNodeText(node.parentElement));
+      return [own, sibling, parent.length <= 500 ? parent : ''];
+    }).filter(Boolean);
+  const bodyLines = String(body).split(/\r?\n/).map(compact).filter(Boolean);
+  bodyLines.forEach((line, index) => {
+    if (/estimated (?:delivery|arrival)|scheduled delivery|delivery date/i.test(line)) {
+      estimatedDeliveryTexts.push(bodyLines.slice(index, index + 4).join(' '));
+    }
+  });
+  const edd = estimatedDeliveryTexts.map(estimatedDateFromText).find(Boolean);
   const isLocation = (line) => {
     if (line.length > 140 || datePattern.test(line) || timePattern.test(line)) return false;
     if (/^(?:United States|US|USA)$/i.test(line)) return true;
@@ -270,6 +315,7 @@ function readUpsDocument(doc, code, diagnose = false) {
   if (currentIndex === -1) deduped.unshift(currentEvent);
   else deduped.unshift(deduped.splice(currentIndex, 1)[0]);
 
-  return { ok: true, code, status, rawStatus, history: deduped.slice(0, 100), checkedAt: new Date().toISOString() };
+  return { ok: true, code, status, rawStatus, history: deduped.slice(0, 100),
+    ...(edd ? { edd } : {}), checkedAt: new Date().toISOString() };
 }
 globalThis.readUpsDocument = readUpsDocument;

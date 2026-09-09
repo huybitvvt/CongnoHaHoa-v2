@@ -61,7 +61,12 @@ type SpeegoRecord = {
   history: unknown;
 };
 
-const UPS_EXTENSION_VERSION = "0.3.0";
+const UPS_EXTENSION_VERSION = "0.3.1";
+const TRACKING_BATCH_SIZE = 20;
+const DATABASE_PAGE_SIZE = 1000;
+const MAX_ORDERS = 5000;
+const LOCAL_CACHE_LIMIT = 100;
+const DATABASE_WRITE_BATCH_SIZE = 100;
 const usd = new Intl.NumberFormat("vi-VN", { style: "currency", currency: "USD" });
 
 function today() {
@@ -246,6 +251,7 @@ export function UpsTracking({ userId }: { userId: string }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [running, setRunning] = useState(false);
   const [activeCodes, setActiveCodes] = useState<string[]>([]);
+  const [trackingProgress, setTrackingProgress] = useState({ completed: 0, total: 0, batch: 0, batches: 0 });
   const [notice, setNotice] = useState("");
   const [connection, setConnection] = useState("Chưa kiểm tra kết nối");
   const [database, setDatabase] = useState("Đang kết nối bảng speego");
@@ -266,20 +272,27 @@ export function UpsTracking({ userId }: { userId: string }) {
       try {
         const saved = JSON.parse(localStorage.getItem(storageKey) || "[]");
         if (Array.isArray(saved)) {
-          cached = saved.map(normalizeSavedRow).filter((row): row is Row => Boolean(row)).slice(0, 500);
+          // Read the complete legacy cache once so older rows can still migrate to Supabase.
+          cached = saved.map(normalizeSavedRow).filter((row): row is Row => Boolean(row)).slice(0, MAX_ORDERS);
           setRows(cached);
         }
       } catch { setNotice("Không đọc được bảng đã lưu trên trình duyệt."); }
       void (async () => {
         const select = "id,order_id,tracking_code,customer_name,phone,order_date,amount,edd,collected,status,raw_status,checked_at,error,history";
-        const { data, error } = await supabase.from("speego").select(select).order("created_at", { ascending: false }).limit(500);
-        if (!mounted.current) return;
-        if (error) {
-          setDatabase("Chưa kết nối được bảng speego");
-          setNotice(`Supabase chưa sẵn sàng: ${error.message}. Dữ liệu tạm thời vẫn được giữ trên trình duyệt.`);
-          return;
+        const databaseRows: Row[] = [];
+        for (let from = 0; from < MAX_ORDERS; from += DATABASE_PAGE_SIZE) {
+          const { data, error } = await supabase.from("speego").select(select)
+            .order("created_at", { ascending: false }).range(from, from + DATABASE_PAGE_SIZE - 1);
+          if (!mounted.current) return;
+          if (error) {
+            setDatabase("Chưa kết nối được bảng speego");
+            setNotice(`Supabase chưa sẵn sàng: ${error.message}. Dữ liệu tạm thời vẫn được giữ trên trình duyệt.`);
+            return;
+          }
+          const page = (data as unknown as SpeegoRecord[]).map(fromSpeegoRecord);
+          databaseRows.push(...page);
+          if (page.length < DATABASE_PAGE_SIZE) break;
         }
-        const databaseRows = (data as unknown as SpeegoRecord[]).map(fromSpeegoRecord);
         const databaseCodes = new Set(databaseRows.map((row) => row.code));
         const missing = cached.filter((row) => !databaseCodes.has(row.code));
         let migrationFailed = false;
@@ -292,9 +305,9 @@ export function UpsTracking({ userId }: { userId: string }) {
             setNotice(`Không chuyển được ${missing.length} đơn cũ lên Supabase: ${migrationError.message}`);
           }
         }
-        const mergedRows = [...databaseRows, ...missing].slice(0, 500);
+        const mergedRows = [...databaseRows, ...missing].slice(0, MAX_ORDERS);
         setRows(mergedRows);
-        try { localStorage.setItem(storageKey, JSON.stringify(mergedRows)); }
+        try { localStorage.setItem(storageKey, JSON.stringify(mergedRows.slice(0, LOCAL_CACHE_LIMIT))); }
         catch { setNotice("Không lưu được bản sao dữ liệu Supabase trên trình duyệt."); }
         setDatabase(migrationFailed ? "Có dữ liệu cũ chưa đồng bộ Supabase" : "Đồng bộ Supabase · bảng speego");
       })();
@@ -327,17 +340,33 @@ export function UpsTracking({ userId }: { userId: string }) {
 
   function save(next: Row[]) {
     setRows(next);
-    try { localStorage.setItem(storageKey, JSON.stringify(next)); }
-    catch { setNotice("Không lưu được vào trình duyệt. Hãy xuất CSV để giữ kết quả."); }
+    try { localStorage.setItem(storageKey, JSON.stringify(next.slice(0, LOCAL_CACHE_LIMIT))); }
+    catch { setNotice("Không lưu được bản sao tạm trên trình duyệt; kết quả vẫn được đồng bộ vào Supabase."); }
   }
 
   async function persistRows(changed: Row[]) {
     if (!changed.length) return "";
-    const { error } = await supabase.from("speego")
-      .upsert(changed.map(toSpeegoRecord), { onConflict: "tracking_code" });
-    if (error) {
-      setDatabase("Lỗi đồng bộ bảng speego");
-      return error.message;
+    for (let offset = 0; offset < changed.length; offset += DATABASE_WRITE_BATCH_SIZE) {
+      const batch = changed.slice(offset, offset + DATABASE_WRITE_BATCH_SIZE);
+      const { error } = await supabase.from("speego")
+        .upsert(batch.map(toSpeegoRecord), { onConflict: "tracking_code" });
+      if (error) {
+        setDatabase("Lỗi đồng bộ bảng speego");
+        return error.message;
+      }
+    }
+    setDatabase("Đồng bộ Supabase · bảng speego");
+    return "";
+  }
+
+  async function deleteRows(codes: string[]) {
+    for (let offset = 0; offset < codes.length; offset += DATABASE_WRITE_BATCH_SIZE) {
+      const batch = codes.slice(offset, offset + DATABASE_WRITE_BATCH_SIZE);
+      const { error } = await supabase.from("speego").delete().in("tracking_code", batch);
+      if (error) {
+        setDatabase("Lỗi đồng bộ bảng speego");
+        return error.message;
+      }
     }
     setDatabase("Đồng bộ Supabase · bảng speego");
     return "";
@@ -364,7 +393,7 @@ export function UpsTracking({ userId }: { userId: string }) {
       createdAt: today(),
       collected: markCollected,
     }));
-    if (rows.length + added.length > 500) { setNotice("Mỗi bảng tối đa 500 đơn."); return; }
+    if (rows.length + added.length > MAX_ORDERS) { setNotice(`Mỗi bảng tối đa ${MAX_ORDERS.toLocaleString("vi-VN")} đơn.`); return; }
     const next = [...rows.map((row) => markCollected && selectedCodes.has(row.code) ? { ...row, collected: true } : row), ...added];
     save(next);
     const changed = markCollected ? next.filter((row) => selectedCodes.has(row.code)) : added;
@@ -386,7 +415,7 @@ export function UpsTracking({ userId }: { userId: string }) {
     if (!/^#[A-Z0-9-]{2,31}$/.test(orderId)) { setNotice("Mã đơn hàng phải có ít nhất 2 ký tự chữ hoặc số."); return; }
     if (rows.some((row) => row.code === code)) { setNotice(`Vận đơn ${code} đã có trong bảng.`); return; }
     if (rows.some((row) => row.orderId?.toUpperCase() === orderId)) { setNotice(`Mã đơn ${orderId} đã có trong bảng.`); return; }
-    if (rows.length >= 500) { setNotice("Mỗi bảng tối đa 500 đơn."); return; }
+    if (rows.length >= MAX_ORDERS) { setNotice(`Mỗi bảng tối đa ${MAX_ORDERS.toLocaleString("vi-VN")} đơn.`); return; }
     const amount = Number(draft.amount);
     const row: Row = {
       code,
@@ -440,29 +469,44 @@ export function UpsTracking({ userId }: { userId: string }) {
         setNotice("Không có vận đơn chưa tra. Các vận đơn đã có kết quả được giữ nguyên.");
         return;
       }
-      setActiveCodes(candidates.map((row) => row.code));
-      await Promise.all(candidates.map(async (row) => {
-        const result = await request("track", row.code);
-        if (!mounted.current) return;
-        if (result.ok && result.code === row.code && typeof result.status === "string"
-          && typeof result.checkedAt === "string") {
-          successful++;
-          next = next.map((item) => item.code === row.code ? { ...item, status: result.status,
-            rawStatus: result.rawStatus, checkedAt: result.checkedAt, history: normalizeHistory(result.history), error: undefined } : item);
-        } else {
-          failed++;
-          next = next.map((item) => item.code === row.code ? { ...item, error: result.error || "Kết quả không khớp mã yêu cầu." } : item);
-        }
-        save(next);
-        const changed = next.find((item) => item.code === row.code);
-        if (changed && await persistRows([changed])) syncFailed++;
-        setActiveCodes((codes) => codes.filter((code) => code !== row.code));
-      }));
+      const batches = Math.ceil(candidates.length / TRACKING_BATCH_SIZE);
+      setTrackingProgress({ completed: 0, total: candidates.length, batch: 1, batches });
+      for (let offset = 0; offset < candidates.length; offset += TRACKING_BATCH_SIZE) {
+        const batch = candidates.slice(offset, offset + TRACKING_BATCH_SIZE);
+        const batchNumber = Math.floor(offset / TRACKING_BATCH_SIZE) + 1;
+        setActiveCodes(batch.map((row) => row.code));
+        setTrackingProgress((progress) => ({ ...progress, batch: batchNumber }));
+        await Promise.all(batch.map(async (row) => {
+          const result = await request("track", row.code);
+          if (!mounted.current) return;
+          if (result.ok && result.code === row.code && typeof result.status === "string"
+            && typeof result.checkedAt === "string") {
+            successful++;
+            const edd = cleanString(result.edd, 10);
+            next = next.map((item) => item.code === row.code ? { ...item, status: result.status,
+              rawStatus: result.rawStatus, checkedAt: result.checkedAt,
+              edd: /^\d{4}-\d{2}-\d{2}$/.test(edd) ? edd : item.edd,
+              history: normalizeHistory(result.history), error: undefined } : item);
+          } else {
+            failed++;
+            next = next.map((item) => item.code === row.code ? { ...item, error: result.error || "Kết quả không khớp mã yêu cầu." } : item);
+          }
+          save(next);
+          const changed = next.find((item) => item.code === row.code);
+          if (changed && await persistRows([changed])) syncFailed++;
+          setActiveCodes((codes) => codes.filter((code) => code !== row.code));
+          setTrackingProgress((progress) => ({ ...progress, completed: progress.completed + 1 }));
+        }));
+      }
       setDatabase(syncFailed ? `Có ${syncFailed} đơn chưa đồng bộ Supabase` : "Đồng bộ Supabase · bảng speego");
-      setNotice(`Đã tra đồng thời ${candidates.length} vận đơn: ${successful} thành công, ${failed} lỗi.${syncFailed ? ` ${syncFailed} kết quả chưa lưu được lên Supabase.` : " Kết quả đã lưu vào bảng speego."}`);
+      setNotice(`Đã tra ${candidates.length} vận đơn theo ${batches} lô, tối đa ${TRACKING_BATCH_SIZE} tab/lô: ${successful} thành công, ${failed} lỗi.${syncFailed ? ` ${syncFailed} kết quả chưa lưu được lên Supabase.` : " Kết quả đã lưu vào bảng speego."}`);
     } finally {
       locked.current = false;
-      if (mounted.current) { setRunning(false); setActiveCodes([]); }
+      if (mounted.current) {
+        setRunning(false);
+        setActiveCodes([]);
+        setTrackingProgress({ completed: 0, total: 0, batch: 0, batches: 0 });
+      }
     }
   }
 
@@ -492,18 +536,15 @@ export function UpsTracking({ userId }: { userId: string }) {
   async function removeSelected() {
     if (!selected.length || !window.confirm(`Xóa ${selected.length} đơn đã chọn khỏi bảng?`)) return;
     save(rows.filter((row) => !selected.includes(row.code)));
-    const { error } = await supabase.from("speego").delete().in("tracking_code", selected);
-    if (error) {
-      setDatabase("Lỗi đồng bộ bảng speego");
-      setNotice(`Đã xóa trên trình duyệt nhưng chưa xóa được ở Supabase: ${error.message}`);
-    }
+    const error = await deleteRows(selected);
+    if (error) setNotice(`Đã xóa trên trình duyệt nhưng chưa xóa được ở Supabase: ${error}`);
     setSelected([]);
   }
 
   return <section className="ups-tracking ups-orders-page">
     <div className="ups-order-tools">
       <div className="ups-order-tools-main">
-        <div className="ups-connection-state"><i className={connection.startsWith("Đã kết nối") && database.startsWith("Đồng bộ") ? "connected" : ""} /><div><strong>{connection}</strong><small>{database} · Tiện ích tra đồng thời các vận đơn chưa có kết quả</small></div></div>
+        <div className="ups-connection-state"><i className={connection.startsWith("Đã kết nối") && database.startsWith("Đồng bộ") ? "connected" : ""} /><div><strong>{connection}</strong><small>{database} · Hàng đợi tự chạy tối đa 20 tab UPS mỗi lô</small></div></div>
         <div className="ups-order-tool-actions">
           <a className="secondary-button" href={`/ups-tracking-extension.zip?v=${UPS_EXTENSION_VERSION}`} download>Tải tiện ích</a>
           <button className="secondary-button" disabled={running} onClick={async () => {
@@ -511,7 +552,7 @@ export function UpsTracking({ userId }: { userId: string }) {
             setConnection(connectionLabel(result));
           }}>Kiểm tra kết nối</button>
           <button className="secondary-button" disabled={!rows.length} onClick={exportCsv}>Xuất CSV</button>
-          <button className="primary-button" disabled={running || !pendingCount} onClick={() => void run()}>{running ? `Đang tra ${activeCodes.length} đơn` : `Tra ${pendingCount} đơn chưa tra`}</button>
+          <button className="primary-button" disabled={running || !pendingCount} onClick={() => void run()}>{running ? `Đang tra ${trackingProgress.completed}/${trackingProgress.total}` : `Tra ${pendingCount} đơn chưa tra`}</button>
         </div>
       </div>
 
@@ -528,11 +569,8 @@ export function UpsTracking({ userId }: { userId: string }) {
                 const codes = rows.map((row) => row.code);
                 save([]);
                 setSelected([]);
-                const { error } = await supabase.from("speego").delete().in("tracking_code", codes);
-                if (error) {
-                  setDatabase("Lỗi đồng bộ bảng speego");
-                  setNotice(`Đã xóa trên trình duyệt nhưng chưa xóa được ở Supabase: ${error.message}`);
-                }
+                const error = await deleteRows(codes);
+                if (error) setNotice(`Đã xóa trên trình duyệt nhưng chưa xóa được ở Supabase: ${error}`);
               }
             }}>Xóa bảng</button>
           </div>
@@ -540,11 +578,11 @@ export function UpsTracking({ userId }: { userId: string }) {
       </details>
 
       <p className="ups-order-note">Mã đơn hàng và mã UPS là hai trường riêng. Trạng thái thu tiền được ghi nhận riêng; “Đã giao” không tự động có nghĩa là “Đã thu tiền”.</p>
-      <div role="status" aria-live="polite">{activeCodes.length > 0 && <p>Đang tra đồng thời {activeCodes.length} vận đơn chưa có kết quả…</p>}{notice && <p>{notice}</p>}</div>
+      <div role="status" aria-live="polite">{activeCodes.length > 0 && <p>Đang chạy lô {trackingProgress.batch}/{trackingProgress.batches}: {activeCodes.length} tab UPS; đã xong {trackingProgress.completed}/{trackingProgress.total} vận đơn…</p>}{notice && <p>{notice}</p>}</div>
     </div>
 
     <div className="ups-order-filter">
-      <div className="ups-order-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm mã đơn, khách hàng, nhân viên, vận đơn..." /></div>
+      <div className="ups-order-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm mã đơn, khách hàng, vận đơn..." /></div>
       <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Lọc trạng thái đơn">
         <option value="all">Tất cả trạng thái</option>
         <option value="new">Mới</option>
@@ -580,7 +618,7 @@ export function UpsTracking({ userId }: { userId: string }) {
                 <td className="number-cell order-amount"><strong>{row.amount == null ? "—" : usd.format(row.amount)}</strong>{row.collected && <button disabled={running} onClick={() => toggleCollected(row.code)}>● Đã thu tiền</button>}</td>
                 <td><span className={`order-status ${state.className}`}>● {activeCodes.includes(row.code) ? "Đang tra" : state.label}</span></td>
                 <td><div className="order-carrier"><b>UPS</b><a href={`https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(row.code)}`} target="_blank" rel="noreferrer">{row.code}</a></div></td>
-                <td className="order-date">{formatOrderDate(row.edd)}</td>
+                <td className="order-date">{row.edd ? formatOrderDate(row.edd) : "Chưa có"}</td>
                 <td><button className="order-more" aria-label={`Xem chi tiết đơn ${row.orderId}`} onClick={() => setExpanded(isExpanded ? "" : row.code)}><MoreVertical size={17} /></button></td>
               </tr>
               {isExpanded && <tr className="ups-order-detail-row"><td colSpan={10}>

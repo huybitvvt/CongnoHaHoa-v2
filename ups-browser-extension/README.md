@@ -1,4 +1,12 @@
-# SpeeGo UPS Tracking — bản thử nghiệm 0.3.0
+# SpeeGo UPS Tracking — bản thử nghiệm 0.3.1
+
+## Bản 0.3.1
+
+Website chạy hàng đợi tự động theo lô tối đa 20 tab UPS. Mỗi mã vẫn được kiểm tra và lưu riêng ngay khi có kết quả; xong lô hiện tại mới mở lô kế tiếp. Bảng hỗ trợ tối đa 5.000 đơn và đọc dữ liệu Supabase theo từng trang 1.000 dòng.
+
+Tiện ích lấy EDD khi UPS hiển thị rõ **Estimated Delivery** hoặc **Scheduled Delivery**, chuẩn hoá thành ngày `YYYY-MM-DD` và lưu vào cột **EDD dự kiến**. Khi UPS chưa cung cấp ngày, hệ thống hiển thị **Chưa có** và không tự suy đoán từ lịch sử hành trình.
+
+Sau cập nhật ZIP, dòng kết nối phải hiện **Đã kết nối UPS 0.3.1**. Với hơn 20 vận đơn chưa tra, trạng thái phải lần lượt hiện lô `1/n`, `2/n`; không quá 20 tab UPS do hệ thống tạo được mở cùng lúc.
 
 ## Bản 0.3.0
 
@@ -80,12 +88,13 @@ Tiện ích này cài riêng với Zalo Bridge. Chỉ cho phép hai domain Hà H
 
 ## Hoạt động và giới hạn
 
-- Các mã chưa tra chạy đồng thời; mỗi mã chờ tối đa khoảng 45 giây sau khi tạo tab. Số tab nền mở cùng lúc bằng số vận đơn trong lượt tra.
+- Các mã chưa tra chạy theo lô tự động tối đa 20 mã; mỗi mã chờ tối đa khoảng 45 giây sau khi tạo tab. Xong lô hiện tại, website tự chạy lô kế tiếp cho tới hết.
 - Dùng lại tab UPS đúng mã nếu đang mở, nếu chưa có thì mở tab ở nền, không giành focus. Chỉ tab do tiện ích tạo mới tự đóng khi thành công. Khi UPS yêu cầu xác minh, chuyển trang hoặc không xác định được trạng thái, giữ tab để người dùng kiểm tra.
 - Trạng thái gần nhất chỉ đọc từ vùng trạng thái riêng hoặc dấu `aria-current`. Lịch sử đọc riêng từ các dòng chi tiết có ngày/giờ sau khi mở **Show Details**; các nhãn tiến trình không có thời gian không được coi là lịch sử. Phải thấy đúng mã vận đơn trong nội dung trang.
 - Không đọc cookie/token, không gọi API riêng của UPS và không vượt CAPTCHA. Có thể cần người dùng xử lý cookie/xác minh tại tab UPS.
 - Giữ trang SpeeGo và trình duyệt mở cho tới khi cả lượt hoàn tất. Các mã đã tra thành công được lưu và không tự động tra lại ở lượt sau.
-- Bảng tối đa 500 mã, lưu localStorage theo user ID trên trình duyệt. Không chia sẻ sang máy khác hoặc ghi trạng thái vào công nợ. Lỗi lần tra mới không xóa trạng thái thành công cũ; bảng hiển thị rõ thời gian và lỗi.
+- Bảng tối đa 5.000 mã, lưu chính trong bảng Supabase `speego`; trình duyệt chỉ giữ bản sao tạm 100 mã gần đầu bảng. Lỗi lần tra mới không xóa trạng thái thành công cũ; bảng hiển thị rõ thời gian và lỗi.
+- EDD chỉ được ghi khi UPS hiển thị rõ ngày giao dự kiến/lịch giao. Hệ thống không lấy ngày trong Package History để đoán EDD.
 - **Delivered** là đã giao hàng, không phải đã thanh toán. Ngày/giờ trong timeline là dữ liệu UPS hiển thị; cột “Lần tra thành công” là thời gian tiện ích đọc dữ liệu.
 
 ## Kiểm tra thủ công bắt buộc trước khi dùng thật

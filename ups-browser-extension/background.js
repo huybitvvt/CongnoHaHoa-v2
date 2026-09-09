@@ -3,7 +3,7 @@ importScripts('reader.js');
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const UPS_ORIGINS = ['https://www.ups.com', 'https://ups.com'];
 const UPS_TAB_PATTERNS = ['https://www.ups.com/*', 'https://ups.com/*'];
-const VERSION = '0.3.0';
+const VERSION = '0.3.1';
 
 function withTimeout(promise, ms, label) {
   let timer;
