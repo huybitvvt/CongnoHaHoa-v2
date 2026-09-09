@@ -1,4 +1,8 @@
-# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.8
+# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.9
+
+## Bản 0.1.9
+
+Bổ sung quyền kết nối website cho deployment mới `https://cong-no-ha-hoa-v2.vercel.app`.
 
 ## Bản 0.1.8
 

@@ -125,6 +125,11 @@ test('rejects untrusted origins, iframe messages and invalid codes before openin
   assert.equal((await bg.send({ action: 'track', code: 'bad/?' })).ok, false);
   assert.equal(bg.count(), 0);
 });
+test('accepts messages from the cloned Vercel deployment', async () => {
+  const bg = background();
+  const sender = { url: 'https://cong-no-ha-hoa-v2.vercel.app/tracking-ups', frameId: 0, tab: { id: 10 } };
+  assert.equal((await bg.send({ action: 'ping' }, sender)).ok, true);
+});
 test('serializes requests across app tabs and closes only its own successful tab', async () => {
   const bg = background();
   const pending = bg.send({ action: 'track', code });

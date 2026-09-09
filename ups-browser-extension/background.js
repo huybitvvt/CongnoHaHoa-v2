@@ -5,7 +5,7 @@ let lastStarted = 0;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const UPS_ORIGINS = ['https://www.ups.com', 'https://ups.com'];
 const UPS_TAB_PATTERNS = ['https://www.ups.com/*', 'https://ups.com/*'];
-const VERSION = '0.1.8';
+const VERSION = '0.1.9';
 
 function withTimeout(promise, ms, label) {
   let timer;
@@ -115,7 +115,11 @@ function allowedSender(sender) {
   try {
     const url = new URL(sender.url);
     return sender.frameId === 0 && Number.isInteger(sender.tab?.id) && (
-      (url.protocol === 'https:' && ['congno-ha-hoa.vercel.app', 'cong-no-ha-hoa-jade.vercel.app'].includes(url.hostname))
+      (url.protocol === 'https:' && [
+        'congno-ha-hoa.vercel.app',
+        'cong-no-ha-hoa-jade.vercel.app',
+        'cong-no-ha-hoa-v2.vercel.app',
+      ].includes(url.hostname))
       || (url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname))
     );
   } catch { return false; }
