@@ -24,27 +24,14 @@ export function LoginScreen() {
 
   return (
     <main className="login-page">
-      <section className="login-brand">
-        <div className="brand-watermark" />
-        <div className="brand-content">
-          <div className="brand-logo-wrap">
-            <Image src="/logo-ha-hoa.jpg" alt="Hà Hoà" width={112} height={112} priority />
-          </div>
-          <p className="eyebrow light">NPP HÀ HOÀ</p>
-          <h1>Quản lý công nợ<br />nhẹ nhàng hơn.</h1>
-          <p>Theo dõi khoản nợ, thanh toán và hàng thu hồi.</p>
-          <div className="login-feature">
-            <Database size={19} />
-            <span>Dữ liệu đồng bộ và bảo vệ bởi Supabase</span>
-          </div>
+      <section className="login-shell">
+        <div className="login-brand-compact">
+          <div className="brand-logo-wrap"><Image src="/logo-ha-hoa.jpg" alt="Hà Hoà" width={76} height={76} priority /></div>
+          <div><span className="live-badge"><i /> Hệ thống trực tuyến</span><h1>NPP HÀ HOÀ</h1><p>Quản lý công nợ & vận hành phân phối</p></div>
         </div>
-      </section>
 
-      <section className="login-panel">
         <form className="login-card" onSubmit={handleSubmit}>
-          <p className="eyebrow">HỆ THỐNG NỘI BỘ</p>
-          <h2>Đăng nhập</h2>
-          <p className="muted">Nhập tài khoản của bạn để tiếp tục.</p>
+          <div className="login-card-heading"><p className="eyebrow">HỆ THỐNG NỘI BỘ</p><h2>Đăng nhập tài khoản</h2><p className="muted">Nhập thông tin được cấp để vào không gian làm việc.</p></div>
 
           {!hasSupabaseConfig && (
             <div className="setup-notice">
@@ -90,7 +77,9 @@ export function LoginScreen() {
           <button className="primary-button login-button" type="submit" disabled={loading || !hasSupabaseConfig}>
             {loading ? "Đang đăng nhập…" : "Đăng nhập"}
           </button>
+          <div className="login-security"><Database size={16} /><span>Dữ liệu được đồng bộ và bảo vệ bởi Supabase</span></div>
         </form>
+        <p className="login-footer">© {new Date().getFullYear()} NPP Hà Hoà · Hệ thống quản trị nội bộ</p>
       </section>
     </main>
   );

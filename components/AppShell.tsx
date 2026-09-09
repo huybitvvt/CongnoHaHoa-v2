@@ -264,30 +264,59 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand-mark"><Image src="/logo-ha-hoa.jpg" alt="Hà Hoà" width={50} height={50} priority /><div><strong>NPP HÀ HOÀ</strong><span>Quản lý công nợ</span></div></div>
-        <button className="mobile-menu icon-button" onClick={() => setMenuOpen((value) => !value)}>{menuOpen ? <X /> : <Menu />}</button>
-        <nav className={menuOpen ? "open" : ""}>
-          <NavButton href={TAB_ROUTES.overview} icon={<LayoutDashboard />} label="Tổng hợp" active={activeTab === "overview"} onNavigate={() => setMenuOpen(false)} />
-          <NavButton href={TAB_ROUTES.debts} icon={<WalletCards />} label="Khách hàng nợ" active={activeTab === "debts"} onNavigate={() => setMenuOpen(false)} />
-          <NavButton href={TAB_ROUTES.payments} icon={<CircleDollarSign />} label="Khách trả nợ" active={activeTab === "payments"} onNavigate={() => setMenuOpen(false)} />
-          <NavButton href={TAB_ROUTES.returns} icon={<RotateCcw />} label="Hàng thu hồi" active={activeTab === "returns"} onNavigate={() => setMenuOpen(false)} />
-          <NavButton href={TAB_ROUTES.customers_list} icon={<Users />} label="Danh sách KH" active={activeTab === "customers_list"} onNavigate={() => setMenuOpen(false)} />
-          <NavButton href={TAB_ROUTES.staff} icon={<UserRound />} label="Nhân sự" active={activeTab === "staff"} onNavigate={() => setMenuOpen(false)} />
-          <NavButton href={TAB_ROUTES.routes} icon={<Route />} label="Tuyến" active={activeTab === "routes"} onNavigate={() => setMenuOpen(false)} />
-          <NavButton href={TAB_ROUTES.sales_routes} icon={<MapPinned />} label="Quản trị Sale theo tuyến" active={activeTab === "sales_routes"} onNavigate={() => setMenuOpen(false)} />
-          <NavButton href={TAB_ROUTES.zalo_contacts} icon={<ContactRound />} label="Danh bạ Zalo" active={activeTab === "zalo_contacts"} onNavigate={() => setMenuOpen(false)} />
-          <NavButton href={TAB_ROUTES.ups_tracking} icon={<ReceiptText />} label="Tracking UPS" active={activeTab === "ups_tracking"} onNavigate={() => setMenuOpen(false)} />
-          <NavButton icon={<Sparkles />} label="Hỏi AI" active={false} onClick={() => { setAiChatPrompt(null); setAiChatImages([]); setAiChatOpen(true); setMenuOpen(false); }} />
-        </nav>
-        <div className="top-actions">
-          <button className="icon-button" title="Làm mới" onClick={() => void loadData(true)}><RefreshCw size={19} className={refreshing ? "spin" : ""} /></button>
-          <button className="icon-button notification" title="Khoản quá hạn" onClick={() => setFilters({ ...EMPTY_FILTERS, status: "overdue" })}><Bell size={19} />{totals.overdueCount > 0 && <i />}</button>
-          <button className="user-menu" onClick={() => setSettingsOpen(true)}><span>{initials(session.user.user_metadata?.full_name || session.user.email || "HH")}</span><div><strong>{session.user.user_metadata?.full_name || "Nhân viên Hà Hoà"}</strong><small>{session.user.email}</small></div><ChevronDown size={16} /></button>
+      <aside className={`app-sidebar ${menuOpen ? "open" : ""}`}>
+        <div className="sidebar-brand">
+          <Link href={TAB_ROUTES.overview} onClick={() => setMenuOpen(false)}>
+            <Image src="/logo-ha-hoa.jpg" alt="Hà Hoà" width={42} height={42} priority />
+            <span><strong>NPP HÀ HOÀ</strong><small>DEBT OPERATIONS</small></span>
+          </Link>
+          <span className="version-badge">V2</span>
+          <button className="sidebar-close icon-button" onClick={() => setMenuOpen(false)} aria-label="Đóng menu"><X size={19} /></button>
         </div>
-      </header>
 
-      <main className="main-content">
+        <div className="sidebar-scroll">
+          <SidebarSection title="Tổng quan">
+            <NavButton href={TAB_ROUTES.overview} icon={<LayoutDashboard />} label="Bảng điều khiển" active={activeTab === "overview"} onNavigate={() => setMenuOpen(false)} />
+          </SidebarSection>
+          <SidebarSection title="Quản lý công nợ">
+            <NavButton href={TAB_ROUTES.debts} icon={<WalletCards />} label="Khách hàng nợ" active={activeTab === "debts"} onNavigate={() => setMenuOpen(false)} />
+            <NavButton href={TAB_ROUTES.payments} icon={<CircleDollarSign />} label="Khách trả nợ" active={activeTab === "payments"} onNavigate={() => setMenuOpen(false)} />
+            <NavButton href={TAB_ROUTES.returns} icon={<RotateCcw />} label="Hàng thu hồi" active={activeTab === "returns"} onNavigate={() => setMenuOpen(false)} />
+          </SidebarSection>
+          <SidebarSection title="Vận hành hệ thống">
+            <NavButton href={TAB_ROUTES.customers_list} icon={<Users />} label="Danh sách khách hàng" active={activeTab === "customers_list"} onNavigate={() => setMenuOpen(false)} />
+            <NavButton href={TAB_ROUTES.staff} icon={<UserRound />} label="Nhân sự" active={activeTab === "staff"} onNavigate={() => setMenuOpen(false)} />
+            <NavButton href={TAB_ROUTES.routes} icon={<Route />} label="Tuyến bán hàng" active={activeTab === "routes"} onNavigate={() => setMenuOpen(false)} />
+            <NavButton href={TAB_ROUTES.sales_routes} icon={<MapPinned />} label="Quản trị Sale theo tuyến" active={activeTab === "sales_routes"} onNavigate={() => setMenuOpen(false)} />
+          </SidebarSection>
+          <SidebarSection title="Kết nối & tiện ích">
+            <NavButton href={TAB_ROUTES.zalo_contacts} icon={<ContactRound />} label="Danh bạ Zalo" active={activeTab === "zalo_contacts"} onNavigate={() => setMenuOpen(false)} />
+            <NavButton href={TAB_ROUTES.ups_tracking} icon={<ReceiptText />} label="Tracking UPS" active={activeTab === "ups_tracking"} onNavigate={() => setMenuOpen(false)} />
+            <NavButton icon={<Sparkles />} label="Trợ lý công nợ AI" active={false} onClick={() => { setAiChatPrompt(null); setAiChatImages([]); setAiChatOpen(true); setMenuOpen(false); }} />
+          </SidebarSection>
+        </div>
+
+        <div className="sidebar-status"><i /><span><strong>Dữ liệu trực tuyến</strong><small>Supabase Production</small></span></div>
+      </aside>
+      {menuOpen && <button className="sidebar-scrim" onClick={() => setMenuOpen(false)} aria-label="Đóng menu" />}
+
+      <div className="app-workspace">
+        <header className="topbar">
+          <button className="mobile-menu icon-button" onClick={() => setMenuOpen(true)} aria-label="Mở menu"><Menu size={21} /></button>
+          <Link className="mobile-brand" href={TAB_ROUTES.overview}><Image src="/logo-ha-hoa.jpg" alt="Hà Hoà" width={36} height={36} /><span><strong>NPP HÀ HOÀ</strong><small>Quản lý công nợ</small></span></Link>
+          <div className="topbar-context">
+            <span className="live-badge"><i /> Live Production</span>
+            <div><small>Không gian làm việc</small><strong>{pageTitle(activeTab)}</strong></div>
+          </div>
+          <div className="top-actions">
+            <button className="ai-header-button" onClick={() => { setAiChatPrompt(null); setAiChatImages([]); setAiChatOpen(true); }}><Sparkles size={16} /><span>Hỏi AI</span></button>
+            <button className="icon-button" title="Làm mới" aria-label="Làm mới dữ liệu" onClick={() => void loadData(true)}><RefreshCw size={19} className={refreshing ? "spin" : ""} /></button>
+            <button className="icon-button notification" title="Khoản quá hạn" aria-label="Xem khoản quá hạn" onClick={() => setFilters({ ...EMPTY_FILTERS, status: "overdue" })}><Bell size={19} />{totals.overdueCount > 0 && <i />}</button>
+            <button className="user-menu" onClick={() => setSettingsOpen(true)}><span>{initials(session.user.user_metadata?.full_name || session.user.email || "HH")}</span><div><strong>{session.user.user_metadata?.full_name || "Nhân viên Hà Hoà"}</strong><small>{session.user.email}</small></div><ChevronDown size={16} /></button>
+          </div>
+        </header>
+
+        <main className="main-content">
         <div className="page-heading">
           <div><p className="eyebrow">{new Intl.DateTimeFormat("vi-VN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(new Date())}</p><h1>{pageTitle(activeTab)}</h1><p>{pageDescription(activeTab)}</p></div>
           <div className="heading-actions"><button className="secondary-button" onClick={() => setSettingsOpen(true)}><Settings size={17} /> Cấu hình</button>{!["sales_routes", "zalo_contacts", "customers_list", "staff", "routes", "ups_tracking"].includes(activeTab) && <button className="primary-button" onClick={openCreate}><Plus size={18} /> {addLabel(activeTab)}</button>}</div>
@@ -350,7 +379,16 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
             />
           )}
         </>}
-      </main>
+        </main>
+
+        <nav className="mobile-bottom-nav" aria-label="Điều hướng chính">
+          <NavButton href={TAB_ROUTES.overview} icon={<LayoutDashboard />} label="Tổng quan" active={activeTab === "overview"} />
+          <NavButton href={TAB_ROUTES.debts} icon={<WalletCards />} label="Công nợ" active={activeTab === "debts"} />
+          <NavButton href={TAB_ROUTES.payments} icon={<CircleDollarSign />} label="Trả nợ" active={activeTab === "payments"} />
+          <NavButton href={TAB_ROUTES.returns} icon={<RotateCcw />} label="Thu hồi" active={activeTab === "returns"} />
+          <button type="button" className={menuOpen ? "active" : ""} onClick={() => setMenuOpen(true)}><Menu /><span>Menu</span></button>
+        </nav>
+      </div>
 
       {settingsOpen && <SettingsDrawer settings={settings} onClose={() => setSettingsOpen(false)} onSaved={(next) => { setSettings(next); setToast("Đã cập nhật cấu hình."); setSettingsOpen(false); }} onLogout={() => void supabase.auth.signOut()} />}
       {aiChatOpen && <DebtAiChat key={aiChatPrompt || "debt-ai"} accessToken={session.access_token} initialPrompt={aiChatPrompt} initialImageDataUrls={aiChatImages} onClose={() => { setAiChatOpen(false); setAiChatPrompt(null); setAiChatImages([]); }} />}
@@ -369,6 +407,10 @@ function NavButton({ href, icon, label, active, onNavigate, onClick }: { href?: 
     );
   }
   return <button type="button" className={active ? "active" : ""} onClick={onClick}>{icon}<span>{label}</span></button>;
+}
+
+function SidebarSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return <section className="sidebar-section"><p>{title}</p><nav>{children}</nav></section>;
 }
 
 function SettingsDrawer({ settings, onClose, onSaved, onLogout }: { settings: AppSettings; onClose: () => void; onSaved: (next: AppSettings) => void; onLogout: () => void }) {
