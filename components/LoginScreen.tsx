@@ -26,8 +26,8 @@ export function LoginScreen() {
     <main className="login-page">
       <section className="login-shell">
         <div className="login-brand-compact">
-          <div className="brand-logo-wrap"><Image src="/logo-ha-hoa.jpg" alt="Hà Hoà" width={76} height={76} priority /></div>
-          <div><span className="live-badge"><i /> Hệ thống trực tuyến</span><h1>NPP HÀ HOÀ</h1><p>Quản lý công nợ & vận hành phân phối</p></div>
+          <div className="brand-logo-wrap"><Image src="/speego-logistics.jpg" alt="SpeeGo Logistics" width={112} height={84} priority /></div>
+          <div><span className="live-badge"><i /> Hệ thống trực tuyến</span><h1>SPEEGO LOGISTICS</h1><p>Quản lý công nợ & vận hành phân phối</p></div>
         </div>
 
         <form className="login-card" onSubmit={handleSubmit}>
@@ -79,7 +79,7 @@ export function LoginScreen() {
           </button>
           <div className="login-security"><Database size={16} /><span>Dữ liệu được đồng bộ và bảo vệ bởi Supabase</span></div>
         </form>
-        <p className="login-footer">© {new Date().getFullYear()} NPP Hà Hoà · Hệ thống quản trị nội bộ</p>
+        <p className="login-footer">© {new Date().getFullYear()} SpeeGo Logistics · Hệ thống quản trị nội bộ</p>
       </section>
     </main>
   );

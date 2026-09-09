@@ -159,7 +159,7 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
   }, [filteredDebts]);
 
   if (!hasSupabaseConfig) return <LoginScreen />;
-  if (session === undefined) return <div className="app-loading"><Image src="/logo-ha-hoa.jpg" alt="Hà Hoà" width={72} height={72} priority /><span>Đang khởi tạo hệ thống…</span></div>;
+  if (session === undefined) return <div className="app-loading"><Image src="/speego-logistics.jpg" alt="SpeeGo Logistics" width={96} height={72} priority /><span>Đang khởi tạo hệ thống…</span></div>;
   if (!session) return <LoginScreen />;
 
   const activeRows = activeTab === "payments" ? paymentsWithCustomer : activeTab === "returns" ? filteredReturns : activeTab === "debts" ? debtsByDueDate : filteredDebts;
@@ -267,8 +267,8 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
       <aside className={`app-sidebar ${menuOpen ? "open" : ""}`}>
         <div className="sidebar-brand">
           <Link href={TAB_ROUTES.overview} onClick={() => setMenuOpen(false)}>
-            <Image src="/logo-ha-hoa.jpg" alt="Hà Hoà" width={42} height={42} priority />
-            <span><strong>NPP HÀ HOÀ</strong><small>DEBT OPERATIONS</small></span>
+            <Image src="/speego-logistics.jpg" alt="SpeeGo Logistics" width={56} height={42} priority />
+            <span><strong>SPEEGO</strong><small>LOGISTICS OPERATIONS</small></span>
           </Link>
           <span className="version-badge">V2</span>
           <button className="sidebar-close icon-button" onClick={() => setMenuOpen(false)} aria-label="Đóng menu"><X size={19} /></button>
@@ -303,7 +303,7 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
       <div className="app-workspace">
         <header className="topbar">
           <button className="mobile-menu icon-button" onClick={() => setMenuOpen(true)} aria-label="Mở menu"><Menu size={21} /></button>
-          <Link className="mobile-brand" href={TAB_ROUTES.overview}><Image src="/logo-ha-hoa.jpg" alt="Hà Hoà" width={36} height={36} /><span><strong>NPP HÀ HOÀ</strong><small>Quản lý công nợ</small></span></Link>
+          <Link className="mobile-brand" href={TAB_ROUTES.overview}><Image src="/speego-logistics.jpg" alt="SpeeGo Logistics" width={45} height={34} /><span><strong>SPEEGO LOGISTICS</strong><small>Quản lý công nợ</small></span></Link>
           <div className="topbar-context">
             <span className="live-badge"><i /> Live Production</span>
             <div><small>Không gian làm việc</small><strong>{pageTitle(activeTab)}</strong></div>

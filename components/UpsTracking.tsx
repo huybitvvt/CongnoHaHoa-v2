@@ -220,7 +220,7 @@ export function UpsTracking({ userId }: { userId: string }) {
     <div className="ups-card">
       <div className="ups-service-brand">
         <Image src="/speego-logistics.jpg" alt="SpeeGo Logistics" width={140} height={105} priority />
-        <div><span>Đối tác vận chuyển</span><strong>SpeeGo Logistics</strong><small>Tra cứu hành trình UPS và đối soát trạng thái thu tiền</small></div>
+        <div><span>Hệ thống logistics</span><strong>SpeeGo Logistics</strong><small>Tra cứu hành trình UPS và đối soát trạng thái thu tiền</small></div>
       </div>
       <div className="ups-actions">
         <strong>{connection}</strong>
