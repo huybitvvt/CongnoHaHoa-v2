@@ -319,7 +319,7 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
         <main className="main-content">
         <div className="page-heading">
           <div><p className="eyebrow">{new Intl.DateTimeFormat("vi-VN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(new Date())}</p><h1>{pageTitle(activeTab)}</h1><p>{pageDescription(activeTab)}</p></div>
-          <div className="heading-actions"><button className="secondary-button" onClick={() => setSettingsOpen(true)}><Settings size={17} /> Cấu hình</button>{!["sales_routes", "zalo_contacts", "customers_list", "staff", "routes", "ups_tracking"].includes(activeTab) && <button className="primary-button" onClick={openCreate}><Plus size={18} /> {addLabel(activeTab)}</button>}</div>
+          <div className="heading-actions"><button className="secondary-button" onClick={() => setSettingsOpen(true)}><Settings size={17} /> Cấu hình</button>{activeTab === "ups_tracking" && <button className="primary-button" onClick={() => window.dispatchEvent(new Event("hahoa-ups-add-new"))}><Plus size={18} /> Thêm mới</button>}{!["sales_routes", "zalo_contacts", "customers_list", "staff", "routes", "ups_tracking"].includes(activeTab) && <button className="primary-button" onClick={openCreate}><Plus size={18} /> {addLabel(activeTab)}</button>}</div>
         </div>
 
         {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")}><X size={17} /></button></div>}

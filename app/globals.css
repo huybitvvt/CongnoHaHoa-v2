@@ -504,6 +504,12 @@ tbody tr:hover td { background: #fffaf5; }
 
 .ups-tracking { display: grid; gap: 18px; }
 .ups-card { padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+.ups-service-brand { display: flex; align-items: center; gap: 16px; padding: 0 0 17px; border-bottom: 1px solid var(--border); }
+.ups-service-brand > img { width: 112px; height: 84px; flex: 0 0 auto; object-fit: contain; border: 1px solid #e2e8f0; border-radius: 12px; }
+.ups-service-brand > div { min-width: 0; display: grid; gap: 3px; }
+.ups-service-brand span { color: #f05a23; font-size: 10px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+.ups-service-brand strong { color: #253c63; font-size: 18px; }
+.ups-service-brand small { color: var(--muted); font-size: 11px; }
 .ups-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
 .ups-actions a { text-decoration: none; }
 .collected-button { padding: 10px 14px; color: #047857; background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 9px; font: inherit; font-weight: 750; cursor: pointer; }
@@ -594,6 +600,8 @@ tbody tr:hover td { background: #fffaf5; }
   .page-heading > div:first-child > p:last-child { display: none; }
   .heading-actions { width: 100%; }
   .heading-actions button { flex: 1; }
+  .ups-service-brand > img { width: 88px; height: 66px; }
+  .ups-service-brand strong { font-size: 15px; }
   .summary-grid { grid-template-columns: 1fr; gap: 9px; }
   .summary-card { min-height: 92px; padding: 16px; }
   .summary-card small { left: 68px; bottom: 9px; }

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
 type TrackingEvent = {
@@ -85,6 +86,7 @@ export function UpsTracking({ userId }: { userId: string }) {
   const stop = useRef(false);
   const mounted = useRef(true);
   const locked = useRef(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const storageKey = `hahoa-ups-v1:${userId}`;
 
   useEffect(() => {
@@ -107,6 +109,15 @@ export function UpsTracking({ userId }: { userId: string }) {
     }, 0);
     return () => { mounted.current = false; stop.current = true; window.clearTimeout(timer); };
   }, [storageKey]);
+
+  useEffect(() => {
+    const focusInput = () => {
+      inputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.setTimeout(() => inputRef.current?.focus(), 250);
+    };
+    window.addEventListener("hahoa-ups-add-new", focusInput);
+    return () => window.removeEventListener("hahoa-ups-add-new", focusInput);
+  }, []);
 
   function save(next: Row[]) {
     setRows(next);
@@ -207,6 +218,10 @@ export function UpsTracking({ userId }: { userId: string }) {
 
   return <section className="ups-tracking">
     <div className="ups-card">
+      <div className="ups-service-brand">
+        <Image src="/speego-logistics.jpg" alt="SpeeGo Logistics" width={140} height={105} priority />
+        <div><span>Đối tác vận chuyển</span><strong>SpeeGo Logistics</strong><small>Tra cứu hành trình UPS và đối soát trạng thái thu tiền</small></div>
+      </div>
       <div className="ups-actions">
         <strong>{connection}</strong>
         <a className="secondary-button" href={`/ups-tracking-extension.zip?v=${UPS_EXTENSION_VERSION}`} download>Tải tiện ích UPS</a>
@@ -221,7 +236,7 @@ export function UpsTracking({ userId }: { userId: string }) {
       </details>
       <p>Tiện ích mở tab UPS ở nền, mở phần chi tiết và lấy toàn bộ lịch sử hành trình có ngày giờ. Giữ trình duyệt và trang này mở trong lúc chạy.</p>
       <label htmlFor="ups-codes">Dán cột mã UPS từ Excel hoặc nhập mỗi mã một dòng</label>
-      <textarea id="ups-codes" value={input} onChange={(event) => setInput(event.target.value)} disabled={running} placeholder="1Z064H260334937790" />
+      <textarea ref={inputRef} id="ups-codes" value={input} onChange={(event) => setInput(event.target.value)} disabled={running} placeholder="1Z064H260334937790" />
       <div className="ups-actions">
         <button className="secondary-button" disabled={running || !input.trim()} onClick={addCodes}>Thêm vào bảng</button>
         <button className="collected-button" disabled={running || !input.trim()} onClick={addAndMarkCollected}>Thêm &amp; đánh dấu đã thu tiền</button>
