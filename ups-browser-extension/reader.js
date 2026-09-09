@@ -10,7 +10,7 @@ function readUpsDocument(doc, code, diagnose = false) {
     }
   }
   doc = doc || document;
-  const READER_VERSION = '0.2.0';
+  const READER_VERSION = '0.2.1';
   const pending = (reason) => diagnose ? { pending: true, reason, readerVersion: READER_VERSION } : null;
   const visible = (node) => node && typeof node.getClientRects === 'function' && node.getClientRects().length > 0;
   const queryAll = (root, selector) => {
@@ -98,16 +98,29 @@ function readUpsDocument(doc, code, diagnose = false) {
   };
   const extractDate = (text) => compact(text).match(datePattern)?.[0];
   const extractTime = (text) => compact(text).match(timePattern)?.[0];
-  const isLocation = (line) => line.length <= 140 && line.includes(',') && !datePattern.test(line) && !timePattern.test(line);
+  const isLocation = (line) => {
+    if (line.length > 140 || datePattern.test(line) || timePattern.test(line)) return false;
+    if (/^(?:United States|US|USA)$/i.test(line)) return true;
+    const parts = line.split(',').map(compact).filter(Boolean);
+    if (parts.length >= 3 && /^[A-Z]{2,3}$/.test(parts.at(-2))) return true;
+    return parts.length === 2 && /^[A-Z][A-Za-z'\-]+(?:\s+[A-Z][A-Za-z'\-]+){0,3}$/.test(parts[1]);
+  };
+  const isNoise = (line) => /^(?:copy tracking number|tracking number copied to clipboard\.?|check|close|completed|to:?|from:?|at|show details|hide details|view details|shipment (?:progress|details)|package history|select time zone|origin time|proof of delivery|file a claim|get updates)$/i.test(compact(line));
   const linesOf = (text) => String(text || '').split(/\r?\n/).map(compact).filter(Boolean);
-  const makeEvent = (rawStatus, status, date, time, locationText, detailLines) => ({
-    status: compact(status || rawStatus).slice(0, 120),
-    rawStatus: compact(rawStatus).slice(0, 160),
-    ...(date ? { date: compact(date).slice(0, 80) } : {}),
-    ...(time ? { time: compact(time).slice(0, 40) } : {}),
-    ...(locationText ? { location: compact(locationText).slice(0, 180) } : {}),
-    ...(detailLines.length ? { details: compact(detailLines.join(' · ')).slice(0, 320) } : {}),
-  });
+  const makeEvent = (rawStatus, status, date, time, locationText, detailLines) => {
+    const raw = compact(rawStatus);
+    const translated = compact(status || rawStatus);
+    const details = [...new Set(detailLines.map(compact).filter((line) => line && !isNoise(line)
+      && line.toLowerCase() !== raw.toLowerCase() && line.toLowerCase() !== translated.toLowerCase()))];
+    return {
+      status: translated.slice(0, 120),
+      rawStatus: raw.slice(0, 160),
+      ...(date ? { date: compact(date).slice(0, 80) } : {}),
+      ...(time ? { time: compact(time).slice(0, 40) } : {}),
+      ...(locationText ? { location: compact(locationText).slice(0, 180) } : {}),
+      ...(details.length ? { details: details.join(' · ').slice(0, 320) } : {}),
+    };
+  };
   const parseBlock = (text, forcedTitle) => {
     const lines = linesOf(text).filter((line) => !new RegExp(`^${code}$`, 'i').test(line));
     const title = forcedTitle || lines.map(titleFor).find(Boolean);
@@ -117,7 +130,7 @@ function readUpsDocument(doc, code, diagnose = false) {
     const locationText = lines.find((line) => isLocation(line));
     const details = lines.map((line) => compact(line
       .replace(datePattern, '').replace(timePattern, '').replace(title.rawStatus, '')))
-      .filter((line) => line && line !== locationText && !/^(show|hide|view) details$|^shipment (?:progress|details)$/i.test(line));
+      .filter((line) => line && line !== locationText && !isNoise(line));
     return makeEvent(title.rawStatus, title.status, date, time, locationText, [...new Set(details)]);
   };
   const parseTimeline = (text) => {
@@ -127,7 +140,7 @@ function readUpsDocument(doc, code, diagnose = false) {
     let contextLocation;
     let event = null;
     const finish = () => {
-      if (event && (event.date || event.time)) events.push(makeEvent(event.rawStatus, event.status,
+      if (event?.time) events.push(makeEvent(event.rawStatus, event.status,
         event.date, event.time, event.location, event.details));
       event = null;
     };
@@ -136,11 +149,13 @@ function readUpsDocument(doc, code, diagnose = false) {
       const date = extractDate(line);
       const time = extractTime(line);
       const title = titleFor(line);
-      if (date && event && event.date && event.date !== date) finish();
+      if (date && event) finish();
       if (time && event && event.time && event.time !== time) finish();
       if (date) contextDate = date;
       if (time) contextTime = time;
-      if (title) {
+      if (title && event && !contextTime && !time && (!date || date === event.date)) {
+        if (!isNoise(line)) event.details.push(line);
+      } else if (title) {
         finish();
         event = { ...title, date: date || contextDate, time: time || contextTime, location: contextLocation || '', details: [] };
         contextTime = undefined;
@@ -152,7 +167,7 @@ function readUpsDocument(doc, code, diagnose = false) {
         if (isLocation(line) && !event.location) event.location = line;
         else {
           const residue = compact(line.replace(datePattern, '').replace(timePattern, ''));
-          if (residue && !/^(show|hide|view) details$|^shipment (?:progress|details)$/i.test(residue)) event.details.push(residue);
+          if (residue && !isNoise(residue)) event.details.push(residue);
         }
       } else if (isLocation(line)) {
         contextLocation = line;
@@ -193,49 +208,67 @@ function readUpsDocument(doc, code, diagnose = false) {
   const status = currentStatuses.get(unique[0]);
 
   const rootSelectors = [
-    'app-shipment-progress-details', 'app-shipment-progress', 'app-track-details',
-    '#stApp_ShpmtProg_LVP', '[id*="ShpmtProg"]',
-    '[data-testid*="shipment-progress"]', '[data-testid*="tracking-detail"]',
-    '[class*="shipment-progress"]', '[class*="tracking-details"]', '[class*="tracking-detail"]',
+    'app-shipment-progress-details', 'app-track-details',
+    '[data-testid*="tracking-detail"]',
+    '[class*="tracking-details"]', '[class*="tracking-detail"]',
     '[class*="timeline"]',
   ];
   const itemSelectors = [
-    '[data-testid*="milestone"]', '[data-testid*="event"]', '[data-testid*="activity"]',
-    '[class*="milestone"]', '[class*="tracking-event"]', '[class*="activity-row"]',
+    '[data-testid*="event"]', '[data-testid*="activity"]',
+    '[class*="tracking-event"]', '[class*="activity-row"]',
     'li', '[role="listitem"]', 'article', 'tr',
   ];
-  const roots = rootSelectors.flatMap((selector) => queryAll(doc, selector)).filter(visible);
+  const exactRoots = queryAll(doc, '#stApp_ShpmtProg_LVP').filter(visible);
+  const headingRoots = queryAll(doc, 'h1, h2, h3, h4, [role="heading"]').flatMap((heading) => {
+    if (!visible(heading) || compact(cleanNodeText(heading)).toLowerCase() !== 'package history') return [];
+    for (let depth = 0, parent = heading.parentElement; parent && depth < 7; depth++, parent = parent.parentElement) {
+      const text = cleanNodeText(parent);
+      const times = text.match(new RegExp(timePattern.source, 'gi')) || [];
+      if (text.length <= 30000 && times.length >= 2) return [parent];
+    }
+    return [];
+  });
+  const candidateRoots = [...new Set(rootSelectors.flatMap((selector) => queryAll(doc, selector)))].filter(visible);
+  const roots = exactRoots.length ? exactRoots : headingRoots.length ? [headingRoots[0]]
+    : candidateRoots.sort((left, right) => cleanNodeText(right).length - cleanNodeText(left).length).slice(0, 1);
   const history = roots.flatMap((root) => parseTimeline(cleanNodeText(root)));
-  const blocks = itemSelectors.flatMap((selector) => queryAll(doc, selector)).filter((node) => {
+  const blocks = [...new Set(itemSelectors.flatMap((selector) => queryAll(doc, selector)))].filter((node) => {
     if (!visible(node)) return false;
     const text = cleanNodeText(node);
-    return text.length > 0 && text.length <= 1200 && Boolean(extractDate(text) || extractTime(text));
+    return text.length > 0 && text.length <= 1200 && Boolean(extractTime(text));
   });
-  blocks.forEach((node) => {
+  if (!history.length) blocks.forEach((node) => {
     const event = parseBlock(cleanNodeText(node));
-    if (event && (event.date || event.time)) history.push(event);
+    if (event?.time) history.push(event);
   });
 
   const currentNode = candidates.find((node) => compact(cleanNodeText(node)).toLowerCase() === unique[0]);
   let currentContext = currentNode;
   for (let depth = 0, parent = currentNode?.parentElement; parent && depth < 5; depth++, parent = parent.parentElement) {
     const text = cleanNodeText(parent);
-    if (text.length > 0 && text.length <= 800 && (extractDate(text) || extractTime(text))) { currentContext = parent; break; }
+    if (text.length > 0 && text.length <= 800 && (extractDate(text) || extractTime(text))) {
+      currentContext = parent;
+      if (extractDate(text) && extractTime(text)) break;
+    }
   }
   const currentEvent = parseBlock(cleanNodeText(currentContext), { rawStatus, status })
     || makeEvent(rawStatus, status, undefined, undefined, undefined, []);
   const normalized = (value) => compact(value).toLowerCase();
+  const compatible = (left, right) => normalized(left.rawStatus) === normalized(right.rawStatus)
+    && (!left.date || !right.date || normalized(left.date) === normalized(right.date))
+    && (!left.time || !right.time || normalized(left.time) === normalized(right.time));
+  const mergeEvents = (left, right) => makeEvent(left.rawStatus || right.rawStatus, left.status || right.status,
+    left.date || right.date, left.time || right.time, left.location || right.location,
+    [left.details, right.details].filter(Boolean));
   const deduped = [];
-  const seen = new Set();
   for (const event of history) {
-    const key = [event.rawStatus, event.date, event.time, event.location, event.details].map(normalized).join('|');
-    if (!seen.has(key)) { seen.add(key); deduped.push(event); }
+    const index = deduped.findIndex((item) => compatible(item, event));
+    if (index === -1) deduped.push(event);
+    else deduped[index] = mergeEvents(deduped[index], event);
   }
-  const hasCurrent = deduped.some((event) => normalized(event.rawStatus) === normalized(rawStatus)
-    && ((!currentEvent.date && !currentEvent.time) || (normalized(event.date) === normalized(currentEvent.date)
-      && normalized(event.time) === normalized(currentEvent.time))));
-  if (!hasCurrent) deduped.unshift(currentEvent);
-  if (!deduped.length) deduped.push(currentEvent);
+  const currentIndex = deduped.findIndex((event) => normalized(event.rawStatus) === normalized(rawStatus));
+  if (currentIndex === -1) deduped.unshift(currentEvent);
+  else deduped.unshift(deduped.splice(currentIndex, 1)[0]);
 
   return { ok: true, code, status, rawStatus, history: deduped.slice(0, 100), checkedAt: new Date().toISOString() };
 }

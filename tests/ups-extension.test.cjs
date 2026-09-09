@@ -46,6 +46,38 @@ test('reads every dated UPS journey event without replacing the explicit current
   assert.equal(result.history[1].location, 'NAVARRE, FL, US');
   assert.equal(result.history[2].status, 'Đã đến cơ sở UPS');
 });
+test('reads the real UPS Package History shape once and ignores the summary time', () => {
+  const current = {
+    ...node('Delivered'),
+    parentElement: { innerText: 'Wednesday, August 19 Left at the Front Door at 3:08 P.M.', parentElement: null },
+  };
+  const packageHistory = node([
+    'Package History', 'Origin Time',
+    '08/19/2026', '1:08 P.M.', 'Delivered', 'DELIVERED', 'NAVARRE, FL, US',
+    '08/19/2026', '7:16 A.M.', 'Out for Delivery', 'Out For Delivery Today', 'Milton, FL, United States',
+    '08/19/2026', '3:48 A.M.', 'On the Way', 'Loaded on Delivery Vehicle', 'Milton, FL, United States',
+    '08/19/2026', '3:43 A.M.', 'Processing at UPS Facility', 'Milton, FL, United States',
+    '08/12/2026', '7:47 P.M.', 'We Have Your Package', 'Arrived at Facility', 'Fremont, CA, United States',
+    '08/12/2026', '3:23 P.M.', 'Dropped off at UPS Access Point by Customer',
+    'The UPS Access Point location has prepared the package for return to UPS or pickup by UPS.', 'Fremont, CA, United States',
+    '08/12/2026', '3:23 P.M.', 'Drop-Off', 'Fremont, CA, United States',
+    '08/12/2026', '2:10 A.M.', 'Label Created', 'Shipper created a label, UPS has not received the package yet.', 'United States',
+  ].join('\n'));
+  const result = reader()(doc(`${code}\nDelivered`, {
+    '#st_App_PkgSts': [current],
+    '#stApp_ShpmtProg_LVP': [packageHistory],
+  }), code);
+  assert.equal(result.history.length, 8);
+  assert.equal(result.history[0].rawStatus, 'Delivered');
+  assert.equal(result.history[0].date, '08/19/2026');
+  assert.match(result.history[0].time, /1:08 P\.M/i);
+  assert.doesNotMatch(result.history[0].details || '', /DELIVERED|Copy Tracking/i);
+  assert.match(result.history[2].details, /Loaded on Delivery Vehicle/);
+  assert.equal(result.history[5].status, 'Đã gửi tại UPS Access Point');
+  assert.equal(result.history[6].rawStatus, 'Drop-Off');
+  assert.equal(result.history[7].status, 'Đã tạo nhãn');
+  assert.equal(result.history[7].location, 'United States');
+});
 test('does not turn undated progress labels into journey history', () => {
   const progress = node('Label Created\nOn the Way\nOut for Delivery\nDelivered');
   const result = reader()(doc(`${code}\nDelivered`, {

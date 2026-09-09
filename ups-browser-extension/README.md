@@ -1,4 +1,10 @@
-# Hà Hoà UPS Tracking — bản thử nghiệm 0.2.0
+# Hà Hoà UPS Tracking — bản thử nghiệm 0.2.1
+
+## Bản 0.2.1
+
+Đọc riêng vùng **Package History** của UPS và chỉ nhận các dòng có giờ thực tế. Loại các mốc tiến trình tổng quát, chữ điều khiển (`Copy Tracking Number`, `completed`, `To:`), bản ghi lồng nhau và thời gian tóm tắt khác múi giờ. Các sự kiện thật trùng giờ nhưng khác nội dung như **Dropped off** và **Drop-Off** vẫn được giữ riêng.
+
+Sau cập nhật ZIP, dòng kết nối phải hiện **Đã kết nối UPS 0.2.1**. Chạy lại **Cập nhật tracking** để thay lịch sử 26 dòng cũ bằng danh sách Package History đã làm sạch.
 
 ## Bản 0.2.0
 

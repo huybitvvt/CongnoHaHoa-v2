@@ -19,7 +19,7 @@ type Row = {
   history?: TrackingEvent[];
 };
 type Response = Partial<Row> & { ok: boolean; fatal?: boolean; version?: string };
-const UPS_EXTENSION_VERSION = "0.2.0";
+const UPS_EXTENSION_VERSION = "0.2.1";
 
 function cleanString(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
