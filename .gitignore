@@ -10,6 +10,8 @@ supabase/.branches/
 *preview*.png
 .vercel/
 tsconfig.tsbuildinfo
+.runner-data/
+.runner-package/
 
 # Dữ liệu nguồn nội bộ, không được đưa lên Git/Vercel.
 CongnotongkhoHaHoa.html

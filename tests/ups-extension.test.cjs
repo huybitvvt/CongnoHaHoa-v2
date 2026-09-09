@@ -252,15 +252,15 @@ test('accepts messages from the cloned Vercel deployment', async () => {
   const sender = { url: 'https://cong-no-ha-hoa-v2.vercel.app/tracking-ups', frameId: 0, tab: { id: 10 } };
   assert.equal((await bg.send({ action: 'ping' }, sender)).ok, true);
 });
-test('runs twenty requests concurrently and closes every successful owned tab', async () => {
+test('deduplicates twenty simultaneous requests for the same code from the same page', async () => {
   const bg = background();
   const requests = Array.from({ length: 20 }, () => bg.send({ action: 'track', code }));
   await new Promise(setImmediate);
-  assert.equal(bg.count(), 20);
+  assert.equal(bg.count(), 1);
   await bg.releaseAll();
   const results = await Promise.all(requests);
   assert.equal(results.every((result) => result.ok), true);
-  assert.deepEqual(bg.removed.sort((a, b) => a - b), Array.from({ length: 20 }, (_, index) => 123 + index));
+  assert.deepEqual(bg.removed, [123]);
 });
 test('keeps tab and reports a fatal result when UPS asks for verification or redirects', async () => {
   for (const options of [{ result: { ok: false, fatal: true, error: 'Verification' } }, { redirected: true }]) {
@@ -358,5 +358,38 @@ test('reads actual UPS header and strips the Material icon text without changing
   assert.equal(result.rawStatus, 'Delivered');
   assert.equal(result.status, 'Đã giao hàng');
   assert.equal(header.innerText, 'Delivered check_circle');
+});
+
+test('quick mode skips expansion, emits current observation, and does not supply an empty history replacement', () => {
+  let clicks = 0;
+  const control = { ...node('Show Details'), click() { clicks++; }, getAttribute() { return null; } };
+  const current = { ...node('On the Way'), parentElement: node('On the Way\n09/10/2026\n1:00 P.M.\nMemphis, TN, US') };
+  const result = reader()(doc(`${code}\nOn the Way`, {
+    '#st_App_PkgSts': [current], 'button, a, [role="button"]': [control],
+  }), code, true, 'quick');
+  assert.equal(clicks, 0);
+  assert.equal(result.ok, true);
+  assert.equal(result.mode, 'quick');
+  assert.equal(result.history, undefined);
+  assert.equal(result.currentEvent.rawStatus, 'On the Way');
+});
+
+test('automatic reads create fresh owned tabs, and close them on challenge instead of accumulating tabs', async () => {
+  const bg = background({ existing: true, result: { ok: false, fatal: true, error: 'Verification' } });
+  const pending = bg.send({ action: 'track', code, fresh: true, automatic: true, mode: 'quick' });
+  await bg.release();
+  assert.equal((await pending).ok, false);
+  assert.equal(bg.count(), 1);
+  assert.deepEqual(bg.removed, [123]);
+});
+
+test('separate worker pages can execute independently', async () => {
+  const bg = background();
+  const requests = Array.from({ length: 6 }, (_, i) => bg.send({ action: 'track', code }, {
+    url: 'http://127.0.0.1:4317/worker', frameId: 0, tab: { id: 100 + i },
+  }));
+  await new Promise(setImmediate); assert.equal(bg.count(), 6);
+  await bg.releaseAll(); assert.equal((await Promise.all(requests)).every((r) => r.ok), true);
+  assert.equal(bg.removed.length, 6);
 });
 

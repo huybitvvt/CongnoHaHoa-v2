@@ -1,4 +1,10 @@
-# SpeeGo UPS Tracking — bản thử nghiệm 0.3.1
+# SpeeGo UPS Tracking 0.4.0
+
+## Bản 0.4.0
+
+Thêm chế độ đọc nhanh không mở lịch sử, trả quan sát hiện tại riêng để không ghi đè lịch sử cũ. Bộ chạy tự động luôn mở trang mới để tránh kết quả cũ và đóng tab do nó tạo cả khi lỗi. Website dùng hàng đợi liên tục 6 vị trí xử lý, không đợi cả lô.
+
+Để chạy theo lịch 30 phút trên máy nhà, tải gói SpeeGo Runner từ website và xem `runner/README.md` trong gói. Sau khi cập nhật tiện ích, tải lại các trang SpeeGo đang mở.
 
 ## Bản 0.3.1
 

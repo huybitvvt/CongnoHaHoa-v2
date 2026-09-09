@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SpeeGo UPS Tracking",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "minimum_chrome_version": "110",
   "description": "Đọc trạng thái và toàn bộ lịch sử hành trình từ tab UPS khi người dùng yêu cầu trên SpeeGo.",
   "permissions": ["scripting", "tabs"],

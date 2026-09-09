@@ -12,5 +12,8 @@ node_modules/
 
 # Chỉ cần khi quản trị database, không cần trong web runtime.
 scripts/
+runner/
+.runner-data/
+.runner-package/
 supabase/
 requirements-import.txt

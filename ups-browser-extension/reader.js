@@ -1,5 +1,5 @@
 /* Runs in the isolated extension world. The current status and dated journey history are read separately. */
-function readUpsDocument(doc, code, diagnose = false) {
+function readUpsDocument(doc, code, diagnose = false, mode = 'full') {
   if (!doc) {
     const currentUrl = new URL(location.href);
     const currentCode = currentUrl.searchParams.get('tracknum')?.toUpperCase();
@@ -10,7 +10,7 @@ function readUpsDocument(doc, code, diagnose = false) {
     }
   }
   doc = doc || document;
-  const READER_VERSION = '0.3.1';
+  const READER_VERSION = '0.4.0';
   const pending = (reason) => diagnose ? { pending: true, reason, readerVersion: READER_VERSION } : null;
   const visible = (node) => node && typeof node.getClientRects === 'function' && node.getClientRects().length > 0;
   const queryAll = (root, selector) => {
@@ -41,12 +41,12 @@ function readUpsDocument(doc, code, diagnose = false) {
   });
   const markerHost = doc.documentElement || detailControl;
   const marker = markerHost?.getAttribute?.('data-hahoa-ups-details-at');
-  if (detailControl && detailControl.getAttribute?.('aria-expanded') !== 'true' && !marker) {
+  if (mode !== 'quick' && detailControl && detailControl.getAttribute?.('aria-expanded') !== 'true' && !marker) {
     markerHost?.setAttribute?.('data-hahoa-ups-details-at', String(Date.now()));
     detailControl.click();
     return pending('DETAILS_EXPANDING');
   }
-  if (marker && Date.now() - Number(marker) < 4000) return pending('DETAILS_LOADING');
+  if (mode !== 'quick' && marker && Date.now() - Number(marker) < 4000) return pending('DETAILS_LOADING');
 
   const currentStatuses = new Map([
     ['delivered', 'Đã giao hàng'], ['out for delivery', 'Đang giao hàng'],
@@ -252,6 +252,20 @@ function readUpsDocument(doc, code, diagnose = false) {
   const rawStatus = matches[0];
   const status = currentStatuses.get(unique[0]);
 
+  const currentNode = candidates.find((node) => compact(cleanNodeText(node)).toLowerCase() === unique[0]);
+  let currentContext = currentNode;
+  for (let depth = 0, parent = currentNode?.parentElement; parent && depth < 5; depth++, parent = parent.parentElement) {
+    const text = cleanNodeText(parent);
+    if (text.length > 0 && text.length <= 800 && (extractDate(text) || extractTime(text))) {
+      currentContext = parent;
+      if (extractDate(text) && extractTime(text)) break;
+    }
+  }
+  const currentEvent = parseBlock(cleanNodeText(currentContext), { rawStatus, status })
+    || makeEvent(rawStatus, status, undefined, undefined, undefined, []);
+  if (mode === 'quick') return { ok: true, code, status, rawStatus, mode, currentEvent,
+    ...(edd ? { edd } : {}), checkedAt: new Date().toISOString() };
+
   const rootSelectors = [
     'app-shipment-progress-details', 'app-track-details',
     '[data-testid*="tracking-detail"]',
@@ -287,17 +301,6 @@ function readUpsDocument(doc, code, diagnose = false) {
     if (event?.time) history.push(event);
   });
 
-  const currentNode = candidates.find((node) => compact(cleanNodeText(node)).toLowerCase() === unique[0]);
-  let currentContext = currentNode;
-  for (let depth = 0, parent = currentNode?.parentElement; parent && depth < 5; depth++, parent = parent.parentElement) {
-    const text = cleanNodeText(parent);
-    if (text.length > 0 && text.length <= 800 && (extractDate(text) || extractTime(text))) {
-      currentContext = parent;
-      if (extractDate(text) && extractTime(text)) break;
-    }
-  }
-  const currentEvent = parseBlock(cleanNodeText(currentContext), { rawStatus, status })
-    || makeEvent(rawStatus, status, undefined, undefined, undefined, []);
   const normalized = (value) => compact(value).toLowerCase();
   const compatible = (left, right) => normalized(left.rawStatus) === normalized(right.rawStatus)
     && (!left.date || !right.date || normalized(left.date) === normalized(right.date))
@@ -315,7 +318,7 @@ function readUpsDocument(doc, code, diagnose = false) {
   if (currentIndex === -1) deduped.unshift(currentEvent);
   else deduped.unshift(deduped.splice(currentIndex, 1)[0]);
 
-  return { ok: true, code, status, rawStatus, history: deduped.slice(0, 100),
+  return { ok: true, code, status, rawStatus, mode: 'full', currentEvent, history: deduped.slice(0, 100),
     ...(edd ? { edd } : {}), checkedAt: new Date().toISOString() };
 }
 globalThis.readUpsDocument = readUpsDocument;

@@ -7,10 +7,10 @@
     const code = String(message.code || '').trim().toUpperCase();
     try {
       if (typeof globalThis.readUpsDocument !== 'function') {
-        respond({ pending: true, reason: 'READER_NOT_READY', readerVersion: '0.3.1' });
+        respond({ pending: true, reason: 'READER_NOT_READY', readerVersion: '0.4.0' });
         return false;
       }
-      respond(globalThis.readUpsDocument(null, code, true));
+      respond(globalThis.readUpsDocument(null, code, true, message.mode === 'quick' ? 'quick' : 'full'));
     } catch (error) {
       respond({
         ok: false,

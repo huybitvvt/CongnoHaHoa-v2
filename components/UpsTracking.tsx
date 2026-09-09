@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Check, FileText, House, MoreVertical, Package, Search, Truck } from "lucide-react";
+import { UpsRunner } from "@/components/UpsRunner";
 import { supabase } from "@/lib/supabase";
 
 type TrackingEvent = {
@@ -87,8 +88,8 @@ type SpeegoRecord = {
   history: unknown;
 };
 
-const UPS_EXTENSION_VERSION = "0.3.1";
-const TRACKING_BATCH_SIZE = 20;
+const UPS_EXTENSION_VERSION = "0.4.0";
+const TRACKING_CONCURRENCY = 6;
 const DATABASE_PAGE_SIZE = 1000;
 const MAX_ORDERS = 5000;
 const LOCAL_CACHE_LIMIT = 100;
@@ -237,42 +238,6 @@ function fromSpeegoRecord(record: SpeegoRecord): Row {
   };
 }
 
-function toSpeegoRecord(row: Row) {
-  return {
-    order_id: row.orderId || defaultOrderId(row.code),
-    tracking_code: row.code,
-    carrier: "UPS",
-    source_order_id: row.sourceOrderId || null,
-    source_order_code: row.sourceOrderCode || null,
-    customer_name: row.customerName || null,
-    phone: row.phone || null,
-    email: row.email || null,
-    address: row.address || null,
-    city: row.city || null,
-    state: row.state || null,
-    postal_code: row.postalCode || null,
-    country: row.country || null,
-    marketing_staff: row.marketingStaff || null,
-    sales_person: row.salesPerson || null,
-    customer_service_staff: row.customerServiceStaff || null,
-    delivery_person: row.deliveryPerson || null,
-    shipping_unit: row.shippingUnit || null,
-    order_date: row.createdAt,
-    amount: row.amount ?? null,
-    unit_price: row.unitPrice ?? null,
-    currency: row.currency || null,
-    exchange_rate: row.exchangeRate ?? null,
-    total_amount_vnd: row.totalAmountVnd ?? null,
-    source_synced_at: row.sourceSyncedAt || null,
-    edd: row.edd || null,
-    collected: row.collected === true,
-    status: row.status || null,
-    raw_status: row.rawStatus || null,
-    checked_at: row.checkedAt || null,
-    error: row.error || null,
-    history: row.history || [],
-  };
-}
 
 function shipmentStep(row: Row): ShipmentStep {
   const status = `${row.rawStatus || ""} ${row.status || ""}`.toLowerCase();
@@ -344,6 +309,7 @@ export function UpsTracking({ userId }: { userId: string }) {
   const [syncing, setSyncing] = useState(false);
   const [activeCodes, setActiveCodes] = useState<string[]>([]);
   const [trackingProgress, setTrackingProgress] = useState({ completed: 0, total: 0, batch: 0, batches: 0 });
+  const [runnerBusy, setRunnerBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [connection, setConnection] = useState("Chưa kiểm tra kết nối");
   const [database, setDatabase] = useState("Đang kết nối bảng speego");
@@ -388,6 +354,15 @@ export function UpsTracking({ userId }: { userId: string }) {
     return () => { mounted.current = false; window.clearTimeout(timer); };
   }, [storageKey]);
 
+  useEffect(() => {
+    if (!runnerBusy || running || syncing) return;
+    let stopped = false;
+    const timer = setInterval(() => {
+      void fetchSpeegoRows().then((data) => { if (!stopped) setRows(data); }).catch(() => {});
+    }, 15_000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [runnerBusy, running, syncing]);
+
   const filteredRows = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("vi");
     return rows.filter((row) => {
@@ -410,28 +385,28 @@ export function UpsTracking({ userId }: { userId: string }) {
   }
 
   async function persistRows(changed: Row[]) {
-    if (!changed.length) return "";
-    for (let offset = 0; offset < changed.length; offset += DATABASE_WRITE_BATCH_SIZE) {
-      const batch = changed.slice(offset, offset + DATABASE_WRITE_BATCH_SIZE);
-      const withId = batch.filter((row) => row.id);
-      const withoutId = batch.filter((row) => !row.id);
-      const { error } = withId.length
-        ? await supabase.from("speego").upsert(withId.map((row) => ({ id: row.id, ...toSpeegoRecord(row) })), { onConflict: "id" })
-        : { error: null };
-      if (error) {
-        setDatabase("Lỗi đồng bộ bảng speego");
-        return error.message;
-      }
-      if (withoutId.length) {
-        const { error: legacyError } = await supabase.from("speego")
-          .upsert(withoutId.map(toSpeegoRecord), { onConflict: "tracking_code" });
-        if (legacyError) {
-          setDatabase("Lỗi đồng bộ bảng speego");
-          return legacyError.message;
-        }
-      }
+    for (const row of changed) {
+      const { data: current, error: readError } = await supabase.from("speego")
+        .select("history,checked_at").eq("id", row.id!).single();
+      if (readError) return readError.message;
+      if (current.checked_at && row.checkedAt && Date.parse(current.checked_at) > Date.parse(row.checkedAt)) continue;
+      const combined = [...(row.history || []), ...normalizeHistory(current.history)];
+      const seen = new Set<string>();
+      const history = combined.filter((event) => {
+        const key = JSON.stringify(event);
+        if (seen.has(key)) return false;
+        seen.add(key); return true;
+      });
+      const patch = row.error ? { error: row.error } : {
+        status: row.status, raw_status: row.rawStatus, checked_at: row.checkedAt,
+        ...(row.edd ? { edd: row.edd } : {}), history, error: null,
+      };
+      let query = supabase.from("speego").update(patch).eq("id", row.id!);
+      query = current.checked_at ? query.eq("checked_at", current.checked_at) : query.is("checked_at", null);
+      const { data, error } = await query.select("id");
+      if (error) return error.message;
+      if (!data.length) return "Dữ liệu vừa được cập nhật ở nơi khác; tải lại bảng để kiểm tra.";
     }
-    setDatabase("Đồng bộ Supabase · bảng speego");
     return "";
   }
 
@@ -478,12 +453,14 @@ export function UpsTracking({ userId }: { userId: string }) {
     const next = rows.map((row) => row.code === code ? { ...row, collected: !row.collected } : row);
     save(next);
     const changed = next.find((row) => row.code === code);
-    const syncError = changed ? await persistRows([changed]) : "";
+    const { error: collectionError } = changed ? await supabase.from("speego")
+      .update({ collected: changed.collected }).eq("id", changed.id!) : { error: null };
+    const syncError = collectionError?.message || "";
     if (syncError) setNotice(`Chưa đồng bộ trạng thái thu tiền lên Supabase: ${syncError}`);
   }
 
   async function run() {
-    if (locked.current) return;
+    if (locked.current || runnerBusy) return;
     locked.current = true;
     setRunning(true);
     setNotice("");
@@ -505,14 +482,12 @@ export function UpsTracking({ userId }: { userId: string }) {
         setNotice("Không có vận đơn chưa tra. Các vận đơn đã có kết quả được giữ nguyên.");
         return;
       }
-      const batches = Math.ceil(candidates.length / TRACKING_BATCH_SIZE);
-      setTrackingProgress({ completed: 0, total: candidates.length, batch: 1, batches });
-      for (let offset = 0; offset < candidates.length; offset += TRACKING_BATCH_SIZE) {
-        const batch = candidates.slice(offset, offset + TRACKING_BATCH_SIZE);
-        const batchNumber = Math.floor(offset / TRACKING_BATCH_SIZE) + 1;
-        setActiveCodes(batch.map((row) => row.code));
-        setTrackingProgress((progress) => ({ ...progress, batch: batchNumber }));
-        await Promise.all(batch.map(async (row) => {
+      setTrackingProgress({ completed: 0, total: candidates.length, batch: 0, batches: 0 });
+      let cursor = 0;
+      await Promise.all(Array.from({ length: Math.min(TRACKING_CONCURRENCY, candidates.length) }, async () => {
+        while (cursor < candidates.length && mounted.current) {
+          const row = candidates[cursor++];
+          setActiveCodes((codes) => [...codes, row.code]);
           const result = await request("track", row.code);
           if (!mounted.current) return;
           if (result.ok && result.code === row.code && typeof result.status === "string"
@@ -532,10 +507,10 @@ export function UpsTracking({ userId }: { userId: string }) {
           if (changed && await persistRows([changed])) syncFailed++;
           setActiveCodes((codes) => codes.filter((code) => code !== row.code));
           setTrackingProgress((progress) => ({ ...progress, completed: progress.completed + 1 }));
-        }));
-      }
+        }
+      }));
       setDatabase(syncFailed ? `Có ${syncFailed} đơn chưa đồng bộ Supabase` : "Đồng bộ Supabase · bảng speego");
-      setNotice(`Đã tra ${candidates.length} vận đơn theo ${batches} lô, tối đa ${TRACKING_BATCH_SIZE} tab/lô: ${successful} thành công, ${failed} lỗi.${syncFailed ? ` ${syncFailed} kết quả chưa lưu được lên Supabase.` : " Kết quả đã lưu vào bảng speego."}`);
+      setNotice(`Đã tra ${candidates.length} vận đơn với tối đa ${TRACKING_CONCURRENCY} tab liên tục: ${successful} thành công, ${failed} lỗi.${syncFailed ? ` ${syncFailed} kết quả chưa lưu được lên Supabase.` : " Kết quả đã lưu vào bảng speego."}`);
     } finally {
       locked.current = false;
       if (mounted.current) {
@@ -583,9 +558,10 @@ export function UpsTracking({ userId }: { userId: string }) {
   }
 
   return <section className="ups-tracking ups-orders-page">
+    <UpsRunner onBusy={setRunnerBusy} manualRunning={running} />
     <div className="ups-order-tools">
       <div className="ups-order-tools-main">
-        <div className="ups-connection-state"><i className={connection.startsWith("Đã kết nối") && database.startsWith("Đồng bộ") ? "connected" : ""} /><div><strong>{connection}</strong><small>{database} · Hàng đợi tự chạy tối đa 20 tab UPS mỗi lô</small></div></div>
+        <div className="ups-connection-state"><i className={connection.startsWith("Đã kết nối") && database.startsWith("Đồng bộ") ? "connected" : ""} /><div><strong>{connection}</strong><small>{database} · Hàng đợi liên tục, tối đa 6 tab khi tra tại đây</small></div></div>
         <div className="ups-order-tool-actions">
           <a className="secondary-button" href={`/ups-tracking-extension.zip?v=${UPS_EXTENSION_VERSION}`} download>Tải tiện ích</a>
           <button className="secondary-button" disabled={running || syncing} onClick={async () => {
@@ -593,13 +569,13 @@ export function UpsTracking({ userId }: { userId: string }) {
             setConnection(connectionLabel(result));
           }}>Kiểm tra kết nối</button>
           <button className="secondary-button" disabled={!rows.length} onClick={exportCsv}>Xuất CSV</button>
-          <button className="secondary-button" disabled={running || syncing || !pendingCount} onClick={() => void run()}>{running ? `Đang tra ${trackingProgress.completed}/${trackingProgress.total}` : `Tra ${pendingCount} đơn chưa tra`}</button>
+          <button className="secondary-button" disabled={running || syncing || runnerBusy || !pendingCount} onClick={() => void run()}>{running ? `Đang tra ${trackingProgress.completed}/${trackingProgress.total}` : `Tra ${pendingCount} đơn chưa tra`}</button>
           <button className="primary-button" disabled={running || syncing} onClick={() => void syncOrders()}>{syncing ? "Đang đồng bộ…" : "Đồng bộ đơn tháng 9"}</button>
         </div>
       </div>
 
       <p className="ups-order-note">Nút đồng bộ chỉ đọc bảng <strong>orders</strong>, chỉ lấy đơn tháng 9 có mã vận đơn bắt đầu bằng <strong>1Z</strong>, rồi tự thêm hoặc cập nhật bảng <strong>speego</strong>.</p>
-      <div role="status" aria-live="polite">{activeCodes.length > 0 && <p>Đang chạy lô {trackingProgress.batch}/{trackingProgress.batches}: {activeCodes.length} tab UPS; đã xong {trackingProgress.completed}/{trackingProgress.total} vận đơn…</p>}{notice && <p>{notice}</p>}</div>
+      <div role="status" aria-live="polite">{activeCodes.length > 0 && <p>Đang xử lý {activeCodes.length} tab UPS; đã xong {trackingProgress.completed}/{trackingProgress.total} vận đơn…</p>}{notice && <p>{notice}</p>}</div>
     </div>
 
     <div className="ups-order-filter">
