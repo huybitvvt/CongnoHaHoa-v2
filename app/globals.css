@@ -506,6 +506,9 @@ tbody tr:hover td { background: #fffaf5; }
 .ups-card { padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
 .ups-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
 .ups-actions a { text-decoration: none; }
+.collected-button { padding: 10px 14px; color: #047857; background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 9px; font: inherit; font-weight: 750; cursor: pointer; }
+.collected-button:hover:not(:disabled) { background: #d1fae5; }
+.collected-button:disabled { cursor: not-allowed; opacity: .5; }
 .ups-card details { margin: 16px 0; }
 .ups-card summary { cursor: pointer; }
 .ups-card li { margin: 8px 0; }
@@ -517,7 +520,10 @@ tbody tr:hover td { background: #fffaf5; }
 .ups-table th { background: var(--green-50); white-space: nowrap; }
 .ups-table td:first-child { white-space: nowrap; }
 .ups-table a { color: var(--green-900); }
-.ups-table td:nth-child(3) { min-width: 340px; }
+.ups-table td:nth-child(4) { min-width: 340px; }
+.collection-toggle { padding: 5px 9px; color: #64748b; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 999px; font: inherit; font-size: 10px; font-weight: 750; white-space: nowrap; cursor: pointer; }
+.collection-toggle.is-collected { color: #047857; background: #ecfdf5; border-color: #6ee7b7; }
+.collection-toggle:disabled { cursor: not-allowed; opacity: .6; }
 .ups-history { margin: 0; }
 .ups-history > summary { width: fit-content; padding: 5px 9px; color: #c2410c; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 750; list-style-position: inside; }
 .ups-history[open] > summary { margin-bottom: 13px; }
