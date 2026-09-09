@@ -56,6 +56,7 @@ function background({
   permissionDenied = false,
   contentAvailable = false,
   contentResult = result,
+  installAvailable = false,
 } = {}) {
   let listener;
   let release;
@@ -63,6 +64,8 @@ function background({
   let created = 0;
   let reads = 0;
   let contentReads = 0;
+  let installs = 0;
+  let hasContent = contentAvailable;
   const chrome = {
     runtime: { onMessage: { addListener: (fn) => { listener = fn; } }, getManifest: () => ({ version: '0.1.0' }) },
     tabs: {
@@ -72,7 +75,7 @@ function background({
       remove: async (id) => removed.push(id),
       sendMessage: (_id, _message, callback) => {
         contentReads++;
-        if (contentAvailable) {
+        if (hasContent) {
           callback(contentResult);
           return;
         }
@@ -84,6 +87,13 @@ function background({
     scripting: { executeScript: async (options) => {
       assert.equal(options.injectImmediately, true);
       if (permissionDenied) throw new Error('Cannot access contents of url. Extension manifest must request permission');
+      if (options.files) {
+        installs++;
+        assert.equal(Array.from(options.files).join(','), 'reader.js,ups-content.js');
+        if (!installAvailable) throw new Error('Frame with ID 0 is showing error page');
+        hasContent = true;
+        return [{ result: undefined }];
+      }
       if (reads++ < failReads) throw new Error('Frame with ID 0 is showing error page');
       return [{ result }];
     } },
@@ -103,6 +113,7 @@ function background({
   return {
     send: (message, from = sender) => new Promise((resolve) => listener({ type: 'HAHOA_UPS', ...message }, from, resolve)),
     release: async () => { await new Promise(setImmediate); release(); }, removed, count: () => created, reads: () => reads, contentReads: () => contentReads,
+    installs: () => installs,
   };
 }
 test('rejects untrusted origins, iframe messages and invalid codes before opening tabs', async () => {
@@ -160,6 +171,21 @@ test('reads an already open UPS tab through its content script when tab metadata
   assert.equal(bg.count(), 0);
   assert.equal(bg.contentReads(), 1);
   assert.equal(bg.reads(), 0);
+});
+
+test('installs the content reader when an existing UPS tab has no receiving end', async () => {
+  const bg = background({ existing: true, installAvailable: true });
+  assert.equal((await bg.send({ action: 'track', code })).ok, true);
+  assert.equal(bg.installs(), 1);
+  assert.equal(bg.contentReads(), 2);
+  assert.equal(bg.reads(), 0);
+});
+
+test('declares the UPS content reader at document_start', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+  const upsScript = manifest.content_scripts.find((script) => script.matches.includes('https://www.ups.com/*'));
+  assert.equal(upsScript.run_at, 'document_start');
+  assert.deepEqual(upsScript.js, ['reader.js', 'ups-content.js']);
 });
 
 test('withheld UPS permission reports failure immediately instead of WAIT_URL', async () => {

@@ -5,7 +5,7 @@ let lastStarted = 0;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const UPS_ORIGINS = ['https://www.ups.com', 'https://ups.com'];
 const UPS_TAB_PATTERNS = ['https://www.ups.com/*', 'https://ups.com/*'];
-const VERSION = '0.1.7';
+const VERSION = '0.1.8';
 
 function withTimeout(promise, ms, label) {
   let timer;
@@ -17,6 +17,10 @@ function withTimeout(promise, ms, label) {
 
 function isPermissionError(message) {
   return /cannot access contents|missing host permission|extensions gallery cannot be scripted/i.test(message);
+}
+
+function isMissingReceiver(message) {
+  return /receiving end does not exist|could not establish connection/i.test(message);
 }
 
 function isUpsTrackingUrl(url, code) {
@@ -65,14 +69,38 @@ async function injectedRead(tabId, code) {
   return results[0]?.result;
 }
 
-async function readTab(tabId, code) {
-  const content = await contentRead(tabId, code);
+async function installContentReader(tabId) {
+  try {
+    const result = await withTimeout(chrome.scripting.executeScript({
+      target: { tabId }, injectImmediately: true, files: ['reader.js', 'ups-content.js'],
+    }), 5000, `INSTALL_TIMEOUT tab=${tabId}`);
+    return result?.__timeout ? { error: result.__timeout } : { ok: true };
+  } catch (error) {
+    return { error: String(error?.message || error).slice(0, 220) };
+  }
+}
+
+async function readTab(tabId, code, allowInstall = false) {
+  let content = await contentRead(tabId, code);
   if (content?.__timeout) return { error: content.__timeout, method: 'content' };
   if (content.result) return { result: content.result, method: 'content' };
+  let bridgeError = content.error || '';
+  if (allowInstall && isMissingReceiver(bridgeError)) {
+    const installed = await installContentReader(tabId);
+    if (installed.error) {
+      if (isPermissionError(installed.error)) return { error: installed.error, method: 'install', bridgeError };
+      bridgeError += `; install=${installed.error}`;
+    } else {
+      content = await contentRead(tabId, code);
+      if (content?.__timeout) bridgeError += `; ${content.__timeout}`;
+      else if (content.result) return { result: content.result, method: 'install' };
+      else if (content.error) bridgeError += `; content-after-install=${content.error}`;
+    }
+  }
   try {
-    return { result: await injectedRead(tabId, code), method: 'inject', bridgeError: content.error };
+    return { result: await injectedRead(tabId, code), method: 'inject', bridgeError };
   } catch (error) {
-    return { error: String(error?.message || error).slice(0, 220), method: 'inject', bridgeError: content.error };
+    return { error: String(error?.message || error).slice(0, 220), method: 'inject', bridgeError };
   }
 }
 
@@ -101,6 +129,7 @@ async function track(code) {
   let lastStage = 'START';
   let attempts = 0;
   let reloadedTab = false;
+  const installAttempted = new Set();
   try {
     await pause(Math.max(0, 3000 - (Date.now() - lastStarted)));
     lastStarted = Date.now();
@@ -111,7 +140,8 @@ async function track(code) {
     if (!existing) {
       for (const item of openTabs) {
         if (hasDifferentTrackingCode(item.url, code)) continue;
-        const read = await readTab(item.id, code);
+        const read = await readTab(item.id, code, !installAttempted.has(item.id));
+        installAttempted.add(item.id);
         attempts++;
         lastReadError = read.error || '';
         if (read.result?.ok) return read.result;
@@ -143,7 +173,9 @@ async function track(code) {
         keepTab = true;
         return { ok: false, fatal: true, error: 'UPS chuyển sang trang khác. Kiểm tra tab UPS rồi thử lại.' };
       }
-      const read = initialResult ? { result: initialResult, method: 'content' } : await readTab(tabId, code);
+      const read = initialResult ? { result: initialResult, method: 'content' }
+        : await readTab(tabId, code, !installAttempted.has(tabId));
+      installAttempted.add(tabId);
       initialResult = null;
       attempts++;
       lastReadError = read.error || '';

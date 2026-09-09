@@ -1,4 +1,10 @@
-# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.7
+# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.8
+
+## Bản 0.1.8
+
+Chẩn đoán thực tế `browser=complete method=inject INJECT_TIMEOUT content=Could not establish connection. Receiving end does not exist.` cho thấy tab UPS đã có kết quả nhưng listener của extension chưa được gắn. Bản này gắn reader từ `document_start`; nếu gặp một tab cũ chưa có listener, background tự chèn `reader.js` và `ups-content.js`, rồi gửi lại lệnh đọc trước khi dùng fallback một lần.
+
+Sau cập nhật ZIP, mở quản lý tiện ích và bấm **Tải lại**, sau đó tải lại trang Hà Hoà. Dòng kết nối phải hiện **Đã kết nối UPS 0.1.8**; tab UPS cũ có thể giữ nguyên vì tiện ích sẽ tự gắn reader khi tra.
 
 ## Bản 0.1.7
 
