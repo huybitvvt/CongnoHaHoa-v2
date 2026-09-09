@@ -25,6 +25,74 @@ test('reads only explicit current status, preserving original text', () => {
   assert.equal(result.code, code);
   assert.equal(result.rawStatus, 'On the Way');
 });
+test('reads every dated UPS journey event without replacing the explicit current status', () => {
+  const timeline = node([
+    'Wednesday, August 19, 2026', '3:08 P.M.', 'Delivered', 'Left at the Front Door', 'NAVARRE, FL, US',
+    'Wednesday, August 19, 2026', '8:24 A.M.', 'Out for Delivery', 'NAVARRE, FL, US',
+    'Tuesday, August 18, 2026', '9:41 P.M.', 'Arrived at UPS Facility', 'PENSACOLA, FL, US',
+  ].join('\n'));
+  const result = reader()(doc(`${code}\nDelivered`, {
+    '#st_App_PkgSts': [node('Delivered')],
+    'app-shipment-progress-details': [timeline],
+  }), code);
+  assert.equal(result.status, 'Đã giao hàng');
+  assert.equal(result.history.length, 3);
+  assert.equal(result.history[0].status, 'Đã giao hàng');
+  assert.equal(result.history[0].date, 'Wednesday, August 19, 2026');
+  assert.match(result.history[0].time, /3:08 P\.M/i);
+  assert.equal(result.history[0].location, 'NAVARRE, FL, US');
+  assert.match(result.history[0].details, /Left at the Front Door/);
+  assert.equal(result.history[1].status, 'Đang giao hàng');
+  assert.equal(result.history[1].location, 'NAVARRE, FL, US');
+  assert.equal(result.history[2].status, 'Đã đến cơ sở UPS');
+});
+test('does not turn undated progress labels into journey history', () => {
+  const progress = node('Label Created\nOn the Way\nOut for Delivery\nDelivered');
+  const result = reader()(doc(`${code}\nDelivered`, {
+    '#st_App_PkgSts': [node('Delivered')],
+    'app-shipment-progress': [progress],
+  }), code);
+  assert.equal(result.history.length, 1);
+  assert.equal(result.history[0].rawStatus, 'Delivered');
+  assert.equal(result.history[0].date, undefined);
+});
+test('keeps unknown dated scan descriptions instead of dropping journey events', () => {
+  const timeline = node([
+    '09/09/2026', '10:15 A.M.', 'Package transferred to a local agent', 'ORLANDO, FL, US',
+    '09/09/2026', '8:10 A.M.', 'Processing at UPS Facility', 'ORLANDO, FL, US',
+  ].join('\n'));
+  const result = reader()(doc(`${code}\nOn the Way`, {
+    '#st_App_PkgSts': [node('On the Way')],
+    'app-shipment-progress-details': [timeline],
+  }), code);
+  assert.equal(result.history.length, 3);
+  assert.equal(result.history[0].status, 'Đang vận chuyển');
+  assert.equal(result.history[1].status, 'Package transferred to a local agent');
+  assert.equal(result.history[1].location, 'ORLANDO, FL, US');
+  assert.equal(result.history[2].status, 'Đang xử lý tại cơ sở UPS');
+});
+test('opens UPS Show Details and waits for the dated history before returning', () => {
+  const attributes = new Map();
+  let clicked = false;
+  const control = {
+    ...node('Show Details'),
+    click: () => { clicked = true; },
+    getAttribute: (name) => attributes.get(name) || null,
+  };
+  const documentElement = {
+    getAttribute: (name) => attributes.get(name) || null,
+    setAttribute: (name, value) => attributes.set(name, value),
+  };
+  const page = doc(`${code}\nDelivered`, {
+    'button, a, [role="button"]': [control],
+    '#st_App_PkgSts': [node('Delivered')],
+  });
+  page.documentElement = documentElement;
+  const result = reader()(page, code, true);
+  assert.equal(clicked, true);
+  assert.equal(result.pending, true);
+  assert.equal(result.reason, 'DETAILS_EXPANDING');
+});
 test('does not attribute another package result to requested code', () => {
   assert.equal(reader()(doc('1Z9999999999999999\nDelivered', { '#st_App_PkgSts': [node('Delivered')] }), code), null);
   assert.equal(reader()(doc(`${code}99\nDelivered`, { '#st_App_PkgSts': [node('Delivered')] }), code), null);

@@ -1,4 +1,10 @@
-# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.9
+# Hà Hoà UPS Tracking — bản thử nghiệm 0.2.0
+
+## Bản 0.2.0
+
+Tự mở **Show Details** và đọc toàn bộ lịch sử hành trình UPS có ngày, giờ, địa điểm và chi tiết; trạng thái gần nhất vẫn chỉ lấy từ vùng trạng thái hiện tại để không đọc nhầm mốc tương lai. Website lưu tối đa 100 sự kiện cho mỗi mã, hiển thị dạng timeline và xuất mỗi sự kiện thành một dòng CSV.
+
+Sau cập nhật ZIP, giải nén thay toàn bộ bản cũ, mở quản lý tiện ích và bấm **Tải lại**, sau đó tải lại trang Hà Hoà. Dòng kết nối phải hiện **Đã kết nối UPS 0.2.0**; website sẽ chặn tra bằng extension cũ vì bản cũ không trả lịch sử.
 
 ## Bản 0.1.9
 
@@ -64,11 +70,11 @@ Tiện ích này cài riêng với Zalo Bridge. Chỉ cho phép hai domain Hà H
 
 - Một mã một lần trên toàn extension; khoảng cách bắt đầu ít nhất 3 giây. Mỗi mã chờ tối đa khoảng 45 giây sau khi tạo tab.
 - Dùng lại tab UPS đúng mã nếu đang mở, nếu chưa có thì mở tab ở nền, không giành focus. Chỉ tab do tiện ích tạo mới tự đóng khi thành công. Khi UPS yêu cầu xác minh, chuyển trang hoặc không xác định được trạng thái, giữ tab để người dùng kiểm tra và dừng hàng đợi.
-- Chỉ đọc trạng thái từ vùng trạng thái riêng hoặc dấu `aria-current`; không suy luận từ danh sách các mốc tiến trình. Phải thấy đúng mã vận đơn trong nội dung trang. Trạng thái mới/lạ báo không đọc được, không đoán.
+- Trạng thái gần nhất chỉ đọc từ vùng trạng thái riêng hoặc dấu `aria-current`. Lịch sử đọc riêng từ các dòng chi tiết có ngày/giờ sau khi mở **Show Details**; các nhãn tiến trình không có thời gian không được coi là lịch sử. Phải thấy đúng mã vận đơn trong nội dung trang.
 - Không đọc cookie/token, không gọi API riêng của UPS và không vượt CAPTCHA. Có thể cần người dùng xử lý cookie/xác minh tại tab UPS.
 - Giữ trang Hà Hoà và trình duyệt mở; rời trang dừng các mã tiếp theo. Nút Dừng chờ mã hiện tại kết thúc. Không tự chạy lại sau khi đóng/mở trình duyệt.
 - Bảng tối đa 500 mã, lưu localStorage theo user ID trên trình duyệt. Không chia sẻ sang máy khác hoặc ghi trạng thái vào công nợ. Lỗi lần tra mới không xóa trạng thái thành công cũ; bảng hiển thị rõ thời gian và lỗi.
-- **Delivered** là đã giao hàng, không phải đã thanh toán. Thời gian trên bảng là lần tra thành công, không phải thời gian giao hàng.
+- **Delivered** là đã giao hàng, không phải đã thanh toán. Ngày/giờ trong timeline là dữ liệu UPS hiển thị; cột “Lần tra thành công” là thời gian tiện ích đọc dữ liệu.
 
 ## Kiểm tra thủ công bắt buộc trước khi dùng thật
 

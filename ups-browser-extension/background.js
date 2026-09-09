@@ -5,7 +5,7 @@ let lastStarted = 0;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const UPS_ORIGINS = ['https://www.ups.com', 'https://ups.com'];
 const UPS_TAB_PATTERNS = ['https://www.ups.com/*', 'https://ups.com/*'];
-const VERSION = '0.1.9';
+const VERSION = '0.2.0';
 
 function withTimeout(promise, ms, label) {
   let timer;

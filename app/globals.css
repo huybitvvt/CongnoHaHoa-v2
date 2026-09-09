@@ -517,6 +517,19 @@ tbody tr:hover td { background: #fffaf5; }
 .ups-table th { background: var(--green-50); white-space: nowrap; }
 .ups-table td:first-child { white-space: nowrap; }
 .ups-table a { color: var(--green-900); }
+.ups-table td:nth-child(3) { min-width: 340px; }
+.ups-history { margin: 0; }
+.ups-history > summary { width: fit-content; padding: 5px 9px; color: #c2410c; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 750; list-style-position: inside; }
+.ups-history[open] > summary { margin-bottom: 13px; }
+.ups-history ol { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.ups-history li { position: relative; display: flex; gap: 11px; min-height: 58px; margin: 0; padding: 0 0 14px; }
+.ups-history li:not(:last-child)::before { position: absolute; content: ""; width: 1px; top: 13px; bottom: -1px; left: 5px; background: #dbe3ec; }
+.ups-history li > i { position: relative; z-index: 1; width: 11px; height: 11px; flex: 0 0 auto; margin-top: 3px; background: #f97316; border: 3px solid #ffedd5; border-radius: 50%; box-shadow: 0 0 0 1px #fdba74; }
+.ups-history li > div { min-width: 0; display: grid; gap: 3px; }
+.ups-history li strong { color: #1e293b; font-size: 12px; }
+.ups-history li span, .ups-history li time, .ups-history li small { color: #64748b; font-size: 11px; font-style: normal; line-height: 1.35; }
+.ups-history li time { color: #334155; font-weight: 700; }
+.ups-history li small { color: #94a3b8; }
 
 @media (max-width: 1250px) {
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

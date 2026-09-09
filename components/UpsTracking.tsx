@@ -2,15 +2,55 @@
 
 import { useEffect, useRef, useState } from "react";
 
+type TrackingEvent = {
+  status: string;
+  rawStatus: string;
+  date?: string;
+  time?: string;
+  location?: string;
+  details?: string;
+};
 type Row = {
   code: string;
   status?: string;
   rawStatus?: string;
   checkedAt?: string;
   error?: string;
+  history?: TrackingEvent[];
 };
 type Response = Partial<Row> & { ok: boolean; fatal?: boolean; version?: string };
-const UPS_EXTENSION_VERSION = "0.1.9";
+const UPS_EXTENSION_VERSION = "0.2.0";
+
+function cleanString(value: unknown, maxLength: number) {
+  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function normalizeHistory(value: unknown): TrackingEvent[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 100).flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    const status = cleanString(record.status, 120);
+    const rawStatus = cleanString(record.rawStatus, 160);
+    if (!status || !rawStatus) return [];
+    return [{
+      status,
+      rawStatus,
+      date: cleanString(record.date, 80) || undefined,
+      time: cleanString(record.time, 40) || undefined,
+      location: cleanString(record.location, 180) || undefined,
+      details: cleanString(record.details, 320) || undefined,
+    }];
+  });
+}
+
+function connectionLabel(response: Response) {
+  if (!response.ok) return response.error || "Chưa kết nối";
+  if (response.version !== UPS_EXTENSION_VERSION) {
+    return `Cần cập nhật tiện ích ${UPS_EXTENSION_VERSION} (đang dùng ${response.version || "bản cũ"})`;
+  }
+  return `Đã kết nối UPS ${response.version}`;
+}
 
 function request(action: "ping" | "track", code?: string): Promise<Response> {
   return new Promise((resolve) => {
@@ -56,10 +96,11 @@ export function UpsTracking({ userId }: { userId: string }) {
             code: row.code,
             ...Object.fromEntries(["status", "rawStatus", "checkedAt", "error"]
               .filter((key) => typeof row[key] === "string").map((key) => [key, row[key]])),
+            history: normalizeHistory(row.history),
           })));
       } catch { setNotice("Không đọc được bảng đã lưu trên trình duyệt."); }
       void request("ping").then((response) => {
-        if (mounted.current) setConnection(response.ok ? `Đã kết nối UPS ${response.version}` : response.error || "Chưa kết nối");
+        if (mounted.current) setConnection(connectionLabel(response));
       });
     }, 0);
     return () => { mounted.current = false; stop.current = true; window.clearTimeout(timer); };
@@ -93,8 +134,12 @@ export function UpsTracking({ userId }: { userId: string }) {
     try {
       const ping = await request("ping");
       if (!mounted.current) return;
-      setConnection(ping.ok ? `Đã kết nối UPS ${ping.version}` : ping.error || "Chưa kết nối");
+      setConnection(connectionLabel(ping));
       if (!ping.ok) { setNotice(ping.error || "Chưa kết nối tiện ích UPS."); return; }
+      if (ping.version !== UPS_EXTENSION_VERSION) {
+        setNotice(`Hãy tải tiện ích UPS ${UPS_EXTENSION_VERSION}, giải nén thay bản cũ rồi bấm Tải lại trong Chrome/Edge.`);
+        return;
+      }
       for (let index = 0; index < next.length; index++) {
         if (stop.current || !mounted.current) break;
         const row = next[index];
@@ -105,7 +150,7 @@ export function UpsTracking({ userId }: { userId: string }) {
         if (result.ok && result.code === row.code && typeof result.status === "string"
           && typeof result.checkedAt === "string") {
           next = next.map((item, i) => i === index ? { code: row.code, status: result.status,
-            rawStatus: result.rawStatus, checkedAt: result.checkedAt } : item);
+            rawStatus: result.rawStatus, checkedAt: result.checkedAt, history: normalizeHistory(result.history) } : item);
         } else {
           next = next.map((item, i) => i === index ? { ...item, error: result.error || "Kết quả không khớp mã yêu cầu." } : item);
         }
@@ -120,8 +165,12 @@ export function UpsTracking({ userId }: { userId: string }) {
 
   function exportCsv() {
     const escape = (value = "") => `"${value.replace(/^[=+@-]/, "'$&").replaceAll('"', '""')}"`;
-    const csv = [["Mã UPS", "Trạng thái", "Trạng thái gốc", "Lần tra thành công", "Lỗi lần tra mới nhất"],
-      ...rows.map((row) => [row.code, row.status, row.rawStatus, row.checkedAt, row.error])]
+    const historyRows = rows.flatMap((row) => (row.history?.length ? row.history : [{
+      status: row.status || "", rawStatus: row.rawStatus || "",
+    }]).map((event) => [row.code, event.status, event.rawStatus, event.date, event.time,
+      event.location, event.details, row.checkedAt, row.error]));
+    const csv = [["Mã UPS", "Trạng thái sự kiện", "Trạng thái gốc", "Ngày UPS", "Giờ UPS", "Địa điểm",
+      "Chi tiết", "Lần tra thành công", "Lỗi lần tra mới nhất"], ...historyRows]
       .map((line) => line.map((value) => escape(value)).join(",")).join("\r\n");
     const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
     const link = document.createElement("a");
@@ -136,14 +185,14 @@ export function UpsTracking({ userId }: { userId: string }) {
         <a className="secondary-button" href={`/ups-tracking-extension.zip?v=${UPS_EXTENSION_VERSION}`} download>Tải tiện ích UPS</a>
         <button className="secondary-button" disabled={running} onClick={async () => {
           const result = await request("ping");
-          setConnection(result.ok ? `Đã kết nối UPS ${result.version}` : result.error || "Chưa kết nối");
+          setConnection(connectionLabel(result));
         }}>Kiểm tra kết nối</button>
       </div>
       <details><summary>Hướng dẫn cài trên Chrome / Edge</summary>
         <ol><li>Tải và giải nén tiện ích UPS.</li><li>Mở chrome://extensions hoặc edge://extensions, bật Chế độ nhà phát triển.</li>
           <li>Chọn “Tải tiện ích đã giải nén”, chọn thư mục chứa manifest.json rồi tải lại trang này.</li></ol>
       </details>
-      <p>Tiện ích mở tab UPS ở nền để tra từng mã. Giữ trình duyệt và trang này mở trong lúc chạy.</p>
+      <p>Tiện ích mở tab UPS ở nền, mở phần chi tiết và lấy toàn bộ lịch sử hành trình có ngày giờ. Giữ trình duyệt và trang này mở trong lúc chạy.</p>
       <label htmlFor="ups-codes">Dán cột mã UPS từ Excel hoặc nhập mỗi mã một dòng</label>
       <textarea id="ups-codes" value={input} onChange={(event) => setInput(event.target.value)} disabled={running} placeholder="1Z064H260334937790" />
       <div className="ups-actions">
@@ -160,14 +209,23 @@ export function UpsTracking({ userId }: { userId: string }) {
       <div role="status" aria-live="polite">{current && <p>Đang tra {current}…</p>}{notice && <p>{notice}</p>}</div>
     </div>
     <div className="ups-card ups-table-wrap">
-      <table className="ups-table"><caption>{rows.length} mã UPS · {rows.filter((row) => row.status).length} mã có kết quả · {rows.filter((row) => row.error).length} mã lỗi</caption>
-        <thead><tr><th scope="col">Mã vận đơn</th><th scope="col">Trạng thái gần nhất</th><th scope="col">Lần tra thành công</th><th scope="col">Lần tra mới nhất</th></tr></thead>
+      <table className="ups-table"><caption>{rows.length} mã UPS · {rows.filter((row) => row.status).length} mã có kết quả · {rows.reduce((sum, row) => sum + (row.history?.length || 0), 0)} sự kiện · {rows.filter((row) => row.error).length} mã lỗi</caption>
+        <thead><tr><th scope="col">Mã vận đơn</th><th scope="col">Trạng thái gần nhất</th><th scope="col">Lịch sử hành trình</th><th scope="col">Lần tra thành công</th><th scope="col">Lần tra mới nhất</th></tr></thead>
         <tbody>{rows.map((row) => <tr key={row.code}>
           <td><a href={`https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(row.code)}`} target="_blank" rel="noreferrer">{row.code}</a></td>
           <td><strong>{row.status || "Chưa có kết quả"}</strong>{row.rawStatus && <div className="muted">{row.rawStatus}</div>}</td>
+          <td>{row.history?.length ? <details className="ups-history">
+            <summary>{row.history.length} sự kiện</summary>
+            <ol>{row.history.map((event, index) => <li key={`${event.rawStatus}-${event.date || ""}-${event.time || ""}-${index}`}>
+              <i /><div><strong>{event.status}</strong>{event.rawStatus !== event.status && <span>{event.rawStatus}</span>}
+                <time>{[event.date, event.time].filter(Boolean).join(" · ") || "UPS không hiển thị ngày giờ"}</time>
+                {event.location && <span>{event.location}</span>}{event.details && <small>{event.details}</small>}
+              </div>
+            </li>)}</ol>
+          </details> : "—"}</td>
           <td>{row.checkedAt && Number.isFinite(Date.parse(row.checkedAt)) ? new Date(row.checkedAt).toLocaleString("vi-VN") : "—"}</td>
           <td>{current === row.code ? "Đang tra…" : row.error || (row.status ? "Thành công" : "Chưa tra")}</td>
-        </tr>)}{!rows.length && <tr><td colSpan={4}>Chưa có mã vận đơn. Dán cột mã phía trên để bắt đầu.</td></tr>}</tbody>
+        </tr>)}{!rows.length && <tr><td colSpan={5}>Chưa có mã vận đơn. Dán cột mã phía trên để bắt đầu.</td></tr>}</tbody>
       </table>
     </div>
   </section>;
