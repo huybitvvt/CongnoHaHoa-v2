@@ -1,4 +1,10 @@
-# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.3
+# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.4
+
+## Bản 0.1.4
+
+Chẩn đoán thực tế 0.1.3 ghi `browser=complete WAIT_URL; reads=0`: chưa từng chạy reader vì metadata URL không khả dụng. Bổ sung quyền `tabs` để đọc URL tab, bỏ chờ vô hạn khi `Tab.url` bị ẩn, và kiểm tra origin/mã trực tiếp trong trang trước khi đọc DOM. Nếu Chrome không cấp quyền chạy script trên UPS, trả lỗi quyền ngay. 18 test UPS và lint qua, gồm URL bị ẩn, quyền UPS bị từ chối và trang chuyển sang mã khác.
+
+Sau cập nhật ZIP, mở quản lý tiện ích và Tải lại. Nếu Chrome yêu cầu xác nhận quyền mới, xác nhận để bật lại tiện ích. Trong Chi tiết → Quyền truy cập trang web, cho phép trên `https://www.ups.com/*` và domain Hà Hoà (hoặc mọi trang được tiện ích yêu cầu). Tải lại cả tab UPS và Hà Hoà, kiểm tra **Đã kết nối UPS 0.1.4** rồi thử lại. Quyền tabs không thay thế quyền đọc nội dung UPS.
 
 ## Bản 0.1.3
 

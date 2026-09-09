@@ -39,9 +39,10 @@ async function track(code) {
       const current = await chrome.tabs.get(tabId);
       lastStage = `tab=${tabId} browser=${current.status}`;
       // A visible result can be ready while third-party resources keep the tab loading.
-      if (!current.url || current.url === 'about:blank') { lastStage += ' WAIT_URL'; continue; }
-      const url = new URL(current.url);
-      if (url.origin !== 'https://www.ups.com' || url.searchParams.get('tracknum')?.toUpperCase() !== code) {
+      if (current.url === 'about:blank') { lastStage += ' WAIT_BLANK'; continue; }
+      // Chrome may redact Tab.url. Validate location inside the permitted page instead.
+      const url = current.url ? new URL(current.url) : null;
+      if (url && (url.origin !== 'https://www.ups.com' || url.searchParams.get('tracknum')?.toUpperCase() !== code)) {
         keepTab = true;
         return { ok: false, fatal: true, error: 'UPS chuyển sang trang khác. Kiểm tra tab UPS rồi thử lại.' };
       }
@@ -71,7 +72,7 @@ async function track(code) {
       }
     }
     keepTab = true;
-    return { ok: false, fatal: true, error: `Chưa đọc được trạng thái sau 45 giây. Chẩn đoán 0.1.3: ${lastStage}; reads=${attempts}` + (lastReadError ? `; ${lastReadError}` : '') };
+    return { ok: false, fatal: true, error: `Chưa đọc được trạng thái sau 45 giây. Chẩn đoán 0.1.4: ${lastStage}; reads=${attempts}` + (lastReadError ? `; ${lastReadError}` : '') };
   } catch (error) {
     keepTab = true;
     console.warn('UPS tracking failed:', error instanceof Error ? error.message : String(error));

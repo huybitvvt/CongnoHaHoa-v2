@@ -45,7 +45,7 @@ test('semantic current step is used and unknown status is not guessed', () => {
   assert.equal(reader()(doc(code, { '#st_App_PkgSts': [node('Something new')] }), code), null);
 });
 
-function background({ result = { ok: true, code, status: 'Đã giao hàng' }, redirected = false, existing = false, failReads = 0, tabStatus = 'complete' } = {}) {
+function background({ result = { ok: true, code, status: 'Đã giao hàng' }, redirected = false, existing = false, failReads = 0, tabStatus = 'complete', redactUrl = false, permissionDenied = false } = {}) {
   let listener;
   let release;
   const removed = [];
@@ -56,11 +56,12 @@ function background({ result = { ok: true, code, status: 'Đã giao hàng' }, re
     tabs: {
       query: async () => existing ? [{ id: 123, url: `https://www.ups.com/track?tracknum=${code}&requester=ST/trackdetails` }] : [],
       create: () => { created++; return new Promise((resolve) => { release = () => resolve({ id: 123 }); }); },
-      get: async () => ({ status: tabStatus, url: redirected ? 'https://www.ups.com/login' : `https://www.ups.com/track?loc=en_US&tracknum=${code}` }),
+      get: async () => ({ status: tabStatus, url: redactUrl ? undefined : redirected ? 'https://www.ups.com/login' : `https://www.ups.com/track?loc=en_US&tracknum=${code}` }),
       remove: async (id) => removed.push(id),
     },
     scripting: { executeScript: async (options) => {
       assert.equal(options.injectImmediately, true);
+      if (permissionDenied) throw new Error('Cannot access contents of url. Extension manifest must request permission');
       if (reads++ < failReads) throw new Error('Frame with ID 0 is showing error page');
       return [{ result }];
     } },
@@ -114,6 +115,25 @@ test('reads rendered result even when browser tab still reports loading', async 
   const bg = background({ existing: true, tabStatus: 'loading' });
   assert.equal((await bg.send({ action: 'track', code })).ok, true);
   assert.equal(bg.reads(), 1);
+});
+
+test('redacted Tab.url does not prevent reading a permitted UPS document', async () => {
+  const bg = background({ existing: true, redactUrl: true });
+  assert.equal((await bg.send({ action: 'track', code })).ok, true);
+  assert.equal(bg.reads(), 1);
+});
+
+test('withheld UPS permission reports failure immediately instead of WAIT_URL', async () => {
+  const bg = background({ existing: true, redactUrl: true, permissionDenied: true });
+  const result = await bg.send({ action: 'track', code });
+  assert.equal(result.fatal, true);
+  assert.match(result.error, /www.ups.com/);
+});
+
+test('injected reader rejects wrong URL even when tab metadata was unavailable', () => {
+  const context = { location: { origin: 'https://www.ups.com', href: 'https://www.ups.com/track?tracknum=WRONG123' }, URL };
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'reader.js'), 'utf8'), context);
+  assert.equal(context.readUpsDocument(null, code, true).fatal, true);
 });
 
 test('diagnostics distinguish missing code from missing status', () => {
