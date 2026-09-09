@@ -88,7 +88,16 @@ function background({
       return [{ result }];
     } },
   };
-  const context = { chrome, URL, importScripts() {}, setTimeout: (fn) => { fn(); return 1; } };
+  const context = {
+    chrome,
+    URL,
+    importScripts() {},
+    clearTimeout() {},
+    setTimeout: (fn) => {
+      if (!String(fn).includes('__timeout')) fn();
+      return 1;
+    },
+  };
   vm.runInNewContext(fs.readFileSync(path.join(root, 'background.js'), 'utf8'), context);
   const sender = { url: 'https://cong-no-ha-hoa-jade.vercel.app/tracking-ups', frameId: 0, tab: { id: 9 } };
   return {

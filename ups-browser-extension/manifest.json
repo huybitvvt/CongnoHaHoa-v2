@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Hà Hoà UPS Tracking",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "minimum_chrome_version": "110",
   "description": "Đọc trạng thái vận đơn từ tab UPS khi người dùng yêu cầu trên Hà Hoà.",
   "permissions": ["scripting", "tabs"],

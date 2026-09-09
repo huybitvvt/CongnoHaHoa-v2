@@ -5,6 +5,15 @@ let lastStarted = 0;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const UPS_ORIGINS = ['https://www.ups.com', 'https://ups.com'];
 const UPS_TAB_PATTERNS = ['https://www.ups.com/*', 'https://ups.com/*'];
+const VERSION = '0.1.6';
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => clearTimeout(timer)),
+    new Promise((resolve) => { timer = setTimeout(() => resolve({ __timeout: label }), ms); }),
+  ]);
+}
 
 function isPermissionError(message) {
   return /cannot access contents|missing host permission|extensions gallery cannot be scripted/i.test(message);
@@ -28,7 +37,9 @@ function hasDifferentTrackingCode(url, code) {
 }
 
 async function queryUpsTabs() {
-  const groups = await Promise.all(UPS_TAB_PATTERNS.map((url) => chrome.tabs.query({ url }).catch(() => [])));
+  const groups = await Promise.all(UPS_TAB_PATTERNS.map((url) => withTimeout(chrome.tabs.query({ url }), 3000, `QUERY_${url}`)
+    .then((result) => Array.isArray(result) ? result : [])
+    .catch(() => [])));
   const seen = new Set();
   return groups.flat().filter((tab) => {
     if (!Number.isInteger(tab?.id) || seen.has(tab.id)) return false;
@@ -38,23 +49,25 @@ async function queryUpsTabs() {
 }
 
 function contentRead(tabId, code) {
-  return new Promise((resolve) => {
+  return withTimeout(new Promise((resolve) => {
     chrome.tabs.sendMessage(tabId, { type: 'HAHOA_UPS_CONTENT', action: 'read', code }, (result) => {
       const error = chrome.runtime.lastError;
       resolve(error ? { error: String(error.message || error) } : { result });
     });
-  });
+  }), 2500, `CONTENT_TIMEOUT tab=${tabId}`);
 }
 
 async function injectedRead(tabId, code) {
-  const results = await chrome.scripting.executeScript({
+  const results = await withTimeout(chrome.scripting.executeScript({
     target: { tabId }, injectImmediately: true, func: globalThis.readUpsDocument, args: [null, code, true],
-  });
+  }), 5000, `INJECT_TIMEOUT tab=${tabId}`);
+  if (results?.__timeout) return { pending: true, reason: results.__timeout, readerVersion: VERSION };
   return results[0]?.result;
 }
 
 async function readTab(tabId, code) {
   const content = await contentRead(tabId, code);
+  if (content?.__timeout) return { error: content.__timeout, method: 'content' };
   if (content.result) return { result: content.result, method: 'content' };
   try {
     return { result: await injectedRead(tabId, code), method: 'inject', bridgeError: content.error };
@@ -83,7 +96,8 @@ async function track(code) {
   try {
     await pause(Math.max(0, 3000 - (Date.now() - lastStarted)));
     lastStarted = Date.now();
-    const openTabs = await queryUpsTabs();
+    const openTabs = await withTimeout(queryUpsTabs(), 7000, 'QUERY_TABS_TIMEOUT');
+    if (openTabs?.__timeout) return { ok: false, fatal: true, error: `Không lấy được danh sách tab UPS. Chẩn đoán ${VERSION}: ${openTabs.__timeout}` };
     let initialResult;
     let existing = openTabs.find((item) => isUpsTrackingUrl(item.url, code));
     if (!existing) {
@@ -102,13 +116,15 @@ async function track(code) {
         }
       }
     }
-    const tab = existing || await chrome.tabs.create({ url: `https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(code)}`, active: false });
+    const tab = existing || await withTimeout(chrome.tabs.create({ url: `https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(code)}`, active: false }), 7000, 'CREATE_TAB_TIMEOUT');
+    if (tab?.__timeout) return { ok: false, fatal: true, error: `Không mở được tab UPS. Chẩn đoán ${VERSION}: ${tab.__timeout}` };
     ownsTab = !existing;
     tabId = tab.id;
     const deadline = Date.now() + 45000;
     while (Date.now() < deadline) {
       await pause(1200);
-      const current = await chrome.tabs.get(tabId);
+      const current = await withTimeout(chrome.tabs.get(tabId), 3000, `GET_TAB_TIMEOUT tab=${tabId}`);
+      if (current?.__timeout) { lastStage = current.__timeout; continue; }
       lastStage = `tab=${tabId} browser=${current.status}`;
       // A visible result can be ready while third-party resources keep the tab loading.
       if (current.url === 'about:blank') { lastStage += ' WAIT_BLANK'; continue; }
@@ -132,7 +148,7 @@ async function track(code) {
         continue;
       }
       const result = read.result;
-      if (result?.pending) { lastStage += ` reader=${result.readerVersion} ${result.reason}`; continue; }
+      if (result?.pending) { lastStage += ` method=${read.method} reader=${result.readerVersion} ${result.reason}`; continue; }
       if (!result) lastStage += ' READER_EMPTY';
       if (result) {
         keepTab = result.fatal === true;
@@ -140,7 +156,7 @@ async function track(code) {
       }
     }
     keepTab = true;
-    return { ok: false, fatal: true, error: `Chưa đọc được trạng thái sau 45 giây. Chẩn đoán 0.1.5: ${lastStage}; reads=${attempts}` + (lastReadError ? `; ${lastReadError}` : '') };
+    return { ok: false, fatal: true, error: `Chưa đọc được trạng thái sau 45 giây. Chẩn đoán ${VERSION}: ${lastStage}; reads=${attempts}` + (lastReadError ? `; ${lastReadError}` : '') };
   } catch (error) {
     keepTab = true;
     console.warn('UPS tracking failed:', error instanceof Error ? error.message : String(error));

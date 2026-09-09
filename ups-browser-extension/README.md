@@ -1,4 +1,8 @@
-# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.5
+# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.6
+
+## Bản 0.1.6
+
+Khi web đã báo **Đã kết nối UPS 0.1.5** nhưng chạy mã rồi hết thời gian với lỗi "Tiện ích không phản hồi", nghĩa là lệnh `track` trong background không trả lời kịp cho web. Bản này thêm timeout riêng cho từng bước Chrome API và trả chẩn đoán `0.1.6` trước khi web tự hết 60 giây.
 
 ## Bản 0.1.5
 
