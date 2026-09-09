@@ -45,7 +45,7 @@ test('semantic current step is used and unknown status is not guessed', () => {
   assert.equal(reader()(doc(code, { '#st_App_PkgSts': [node('Something new')] }), code), null);
 });
 
-function background({ result = { ok: true, code, status: 'Đã giao hàng' }, redirected = false, existing = false, failReads = 0 } = {}) {
+function background({ result = { ok: true, code, status: 'Đã giao hàng' }, redirected = false, existing = false, failReads = 0, tabStatus = 'complete' } = {}) {
   let listener;
   let release;
   const removed = [];
@@ -56,10 +56,11 @@ function background({ result = { ok: true, code, status: 'Đã giao hàng' }, re
     tabs: {
       query: async () => existing ? [{ id: 123, url: `https://www.ups.com/track?tracknum=${code}&requester=ST/trackdetails` }] : [],
       create: () => { created++; return new Promise((resolve) => { release = () => resolve({ id: 123 }); }); },
-      get: async () => ({ status: 'complete', url: redirected ? 'https://www.ups.com/login' : `https://www.ups.com/track?loc=en_US&tracknum=${code}` }),
+      get: async () => ({ status: tabStatus, url: redirected ? 'https://www.ups.com/login' : `https://www.ups.com/track?loc=en_US&tracknum=${code}` }),
       remove: async (id) => removed.push(id),
     },
-    scripting: { executeScript: async () => {
+    scripting: { executeScript: async (options) => {
+      assert.equal(options.injectImmediately, true);
       if (reads++ < failReads) throw new Error('Frame with ID 0 is showing error page');
       return [{ result }];
     } },
@@ -107,6 +108,17 @@ test('reuses matching loaded UPS tab and never closes a user tab', async () => {
   assert.equal((await bg.send({ action: 'track', code })).ok, true);
   assert.equal(bg.count(), 0);
   assert.deepEqual(bg.removed, []);
+});
+
+test('reads rendered result even when browser tab still reports loading', async () => {
+  const bg = background({ existing: true, tabStatus: 'loading' });
+  assert.equal((await bg.send({ action: 'track', code })).ok, true);
+  assert.equal(bg.reads(), 1);
+});
+
+test('diagnostics distinguish missing code from missing status', () => {
+  assert.equal(reader()(doc('Loading'), code, true).reason, 'CODE_NOT_VISIBLE');
+  assert.match(reader()(doc(code), code, true).reason, /STATUS_NOT_RESOLVED/);
 });
 
 test('retries transient frame errors while UPS is navigating', async () => {

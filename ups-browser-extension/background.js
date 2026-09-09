@@ -19,6 +19,8 @@ async function track(code) {
   let ownsTab = false;
   let keepTab = false;
   let lastReadError = '';
+  let lastStage = 'START';
+  let attempts = 0;
   try {
     await pause(Math.max(0, 3000 - (Date.now() - lastStarted)));
     lastStarted = Date.now();
@@ -35,8 +37,9 @@ async function track(code) {
       await pause(1200);
       // Extension API calls keep this bounded request alive in MV3.
       const current = await chrome.tabs.get(tabId);
-      if (current.status !== 'complete') continue;
-      if (!current.url || current.url === 'about:blank') continue;
+      lastStage = `tab=${tabId} browser=${current.status}`;
+      // A visible result can be ready while third-party resources keep the tab loading.
+      if (!current.url || current.url === 'about:blank') { lastStage += ' WAIT_URL'; continue; }
       const url = new URL(current.url);
       if (url.origin !== 'https://www.ups.com' || url.searchParams.get('tracknum')?.toUpperCase() !== code) {
         keepTab = true;
@@ -46,8 +49,9 @@ async function track(code) {
       try {
         // One injection: navigation between injecting a file and invoking it cannot erase the reader.
         results = await chrome.scripting.executeScript({
-          target: { tabId }, func: globalThis.readUpsDocument, args: [null, code],
+          target: { tabId }, injectImmediately: true, func: globalThis.readUpsDocument, args: [null, code, true],
         });
+        attempts++;
         lastReadError = '';
       } catch (error) {
         lastReadError = String(error?.message || error).slice(0, 220);
@@ -59,13 +63,15 @@ async function track(code) {
         continue;
       }
       const result = results[0]?.result;
+      if (result?.pending) { lastStage += ` reader=${result.readerVersion} ${result.reason}`; continue; }
+      if (!result) lastStage += ' READER_EMPTY';
       if (result) {
         keepTab = result.fatal === true;
         return result;
       }
     }
     keepTab = true;
-    return { ok: false, fatal: true, error: 'Chưa đọc được trạng thái sau 45 giây. Giữ tab UPS đã tải xong rồi bấm Thử lại mã lỗi.' + (lastReadError ? ` Chi tiết: ${lastReadError}` : ' Nếu UPS đã hiện trạng thái, cần kiểm tra vùng dữ liệu trên trang.') };
+    return { ok: false, fatal: true, error: `Chưa đọc được trạng thái sau 45 giây. Chẩn đoán 0.1.3: ${lastStage}; reads=${attempts}` + (lastReadError ? `; ${lastReadError}` : '') };
   } catch (error) {
     keepTab = true;
     console.warn('UPS tracking failed:', error instanceof Error ? error.message : String(error));

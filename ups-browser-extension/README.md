@@ -1,4 +1,10 @@
-# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.2
+# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.3
+
+## Bản 0.1.3
+
+Bỏ điều kiện `tabs.status === complete`, dùng `injectImmediately` để thử đọc DOM khi tài nguyên khác vẫn đang tải. Timeout ghi tab ID, trạng thái trình duyệt, số lần đọc, phiên bản reader và điều kiện chưa đạt (mã chưa hiển thị / trạng thái chưa xác định). Chưa xác nhận đây là nguyên nhân trên máy người dùng; đây là sửa điều kiện chờ và bổ sung bằng chứng chẩn đoán.
+
+Đã qua 15 test UPS, lint và kiểm tra toàn bộ website bridge → extension Edge → DOM thực tế người dùng cung cấp với `tabs.status` giả lập là `loading`: trả Delivered đúng mã. Sau khi cập nhật thư mục extension, bấm Tải lại tiện ích và website; phải hiện **Đã kết nối UPS 0.1.3**.
 
 ## Bản 0.1.2
 

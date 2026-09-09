@@ -1,6 +1,7 @@
 /* Runs in the isolated extension world. Never infer status from the full milestone list. */
-function readUpsDocument(doc, code) {
+function readUpsDocument(doc, code, diagnose = false) {
   doc = doc || document;
+  const pending = (reason) => diagnose ? { pending: true, reason, readerVersion: '0.1.3' } : null;
   const visible = (node) => node && node.getClientRects().length > 0;
   const body = doc.body?.innerText || '';
   if (/access denied|verify you are human|verify you're human|unusual traffic|robot verification|security check|temporarily blocked/i.test(body)) {
@@ -11,7 +12,7 @@ function readUpsDocument(doc, code) {
   }
   // Bind the result to a visibly rendered tracking number, not just the requested URL.
   if (!/^[A-Z0-9]{7,34}$/.test(code)
-    || !new RegExp(`(?:^|[^A-Z0-9])${code}(?:$|[^A-Z0-9])`).test(body.toUpperCase())) return null;
+    || !new RegExp(`(?:^|[^A-Z0-9])${code}(?:$|[^A-Z0-9])`).test(body.toUpperCase())) return pending('CODE_NOT_VISIBLE');
   const selectors = [
     'app-header-tile #stApp_nameKey',
     '#st_App_PkgSts', '#st_App_PkgSts span',
@@ -51,7 +52,7 @@ function readUpsDocument(doc, code) {
   const matches = candidates.map((node) => statusText(node).replace(/\s+/g, ' ').trim())
     .filter((text) => statuses.has(text.toLowerCase()));
   const unique = [...new Set(matches.map((text) => text.toLowerCase()))];
-  if (unique.length !== 1) return null;
+  if (unique.length !== 1) return pending(`STATUS_NOT_RESOLVED candidates=${candidates.length} recognized=${unique.join('|') || 'none'}`);
   return { ok: true, code, status: statuses.get(unique[0]), rawStatus: matches[0], checkedAt: new Date().toISOString() };
 }
 globalThis.readUpsDocument = readUpsDocument;
