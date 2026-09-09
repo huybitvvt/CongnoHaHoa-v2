@@ -7,6 +7,7 @@ export const TAB_ROUTES: Record<TabKey, string> = {
   returns: "/thu-hoi",
   sales_routes: "/sale-tuyen",
   zalo_contacts: "/danh-ba-zalo",
+  ups_tracking: "/tracking-ups",
   customers_list: "/danh-sach-khach-hang",
   staff: "/nhan-su",
   routes: "/tuyen",

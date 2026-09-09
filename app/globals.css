@@ -476,6 +476,22 @@ tbody tr:hover td { background: #fbfdfc; }
   .user-menu > div, .user-menu > svg { display: none; }
 }
 
+.ups-tracking { display: grid; gap: 18px; }
+.ups-card { padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+.ups-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
+.ups-actions a { text-decoration: none; }
+.ups-card details { margin: 16px 0; }
+.ups-card summary { cursor: pointer; }
+.ups-card li { margin: 8px 0; }
+.ups-card label { display: block; margin-bottom: 8px; font-weight: 700; }
+.ups-table-wrap { overflow-x: auto; }
+.ups-table { width: 100%; border-collapse: collapse; text-align: left; }
+.ups-table caption { text-align: left; padding-bottom: 14px; color: var(--muted); }
+.ups-table th, .ups-table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.ups-table th { background: var(--green-50); white-space: nowrap; }
+.ups-table td:first-child { white-space: nowrap; }
+.ups-table a { color: var(--green-900); }
+
 @media (max-width: 1250px) {
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .filter-grid { grid-template-columns: repeat(4, minmax(130px, 1fr)); }

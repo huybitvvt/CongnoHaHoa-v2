@@ -1,6 +1,6 @@
 import type { RouteAssignedStaff, RouteLocationItem } from "@/lib/route-helpers";
 
-export type TabKey = "overview" | "debts" | "payments" | "returns" | "sales_routes" | "zalo_contacts" | "customers_list" | "staff" | "routes";
+export type TabKey = "overview" | "debts" | "payments" | "returns" | "sales_routes" | "zalo_contacts" | "customers_list" | "staff" | "routes" | "ups_tracking";
 
 export type DebtStatus = "paid" | "overdue" | "due_soon" | "open";
 

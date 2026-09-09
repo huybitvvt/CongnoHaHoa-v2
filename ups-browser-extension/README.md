@@ -1,0 +1,42 @@
+# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.0
+
+Không cần UPS API key. Extension đọc DOM hiển thị trên trang tracking công khai, chỉ khi người dùng bấm cập nhật. Cần kiểm chứng selector trên UPS thực tế trước khi coi là dùng ổn định.
+
+## Cài đặt
+
+1. Tải `/ups-tracking-extension.zip` từ web hoặc dùng thư mục `ups-browser-extension` trong repo.
+2. Giải nén. Mở `edge://extensions` hoặc `chrome://extensions`, bật Developer mode.
+3. Load unpacked → chọn thư mục chứa `manifest.json`.
+4. Tải lại website Hà Hoà, đăng nhập, mở **Tracking UPS** (`/tracking-ups`).
+5. Dán cột mã từ Excel → **Thêm vào bảng** → **Cập nhật tracking**.
+
+Tiện ích này cài riêng với Zalo Bridge. Chỉ cho phép hai domain Hà Hoà được khai báo trong manifest và localhost/127.0.0.1. Preview/custom domain khác cần được thêm vào cả manifest và `allowedSender`.
+
+## Hoạt động và giới hạn
+
+- Một mã một lần trên toàn extension; khoảng cách bắt đầu ít nhất 3 giây. Mỗi mã chờ tối đa khoảng 45 giây sau khi tạo tab.
+- Tab UPS mở ở nền, không giành focus. Tab thành công tự đóng. Khi UPS yêu cầu xác minh, chuyển trang hoặc không xác định được trạng thái, giữ tab để người dùng kiểm tra và dừng hàng đợi.
+- Chỉ đọc trạng thái từ vùng trạng thái riêng hoặc dấu `aria-current`; không suy luận từ danh sách các mốc tiến trình. Phải thấy đúng mã vận đơn trong nội dung trang. Trạng thái mới/lạ báo không đọc được, không đoán.
+- Không đọc cookie/token, không gọi API riêng của UPS và không vượt CAPTCHA. Có thể cần người dùng xử lý cookie/xác minh tại tab UPS.
+- Giữ trang Hà Hoà và trình duyệt mở; rời trang dừng các mã tiếp theo. Nút Dừng chờ mã hiện tại kết thúc. Không tự chạy lại sau khi đóng/mở trình duyệt.
+- Bảng tối đa 500 mã, lưu localStorage theo user ID trên trình duyệt. Không chia sẻ sang máy khác hoặc ghi trạng thái vào công nợ. Lỗi lần tra mới không xóa trạng thái thành công cũ; bảng hiển thị rõ thời gian và lỗi.
+- **Delivered** là đã giao hàng, không phải đã thanh toán. Thời gian trên bảng là lần tra thành công, không phải thời gian giao hàng.
+
+## Kiểm tra thủ công bắt buộc trước khi dùng thật
+
+Tra một mã còn hoạt động trên UPS, so sánh trạng thái bảng với tab UPS; tiếp tục với mã chưa giao và mã sai. Kiểm tra cookie/CAPTCHA, đóng tab giữa chừng, dừng hàng đợi và thử đồng thời từ hai tab Hà Hoà. Test tự động dùng DOM giả lập để kiểm tra chống đọc nhầm, không chứng minh UPS thực tế cho phép chạy nền.
+
+### Kết quả kiểm tra ngày 09/09/2026
+
+- `npm.cmd test`: 25/25 test qua, trong đó 9 test mới cho UPS.
+- `npm.cmd run lint` và `npm.cmd run build`: qua; build có route `/tracking-ups`.
+- Edge headless nạp extension thật: website gửi mã → service worker mở tab → đọc DOM giả lập UPS → trả đúng `On the Way` dù có mốc `Delivered` → đóng tab thành công. Trong bài kiểm tra, tab được mở about:blank trước để Playwright kịp gắn bộ chặn request; không sửa luồng production vì mục đích này.
+- UPS thật: HTTP trực tiếp timeout; Edge báo `ERR_HTTP2_PROTOCOL_ERROR`. Chưa có bằng chứng selector khớp UPS hiện tại hoặc chạy ổn định với mã thật. Đây là bản cài thử, chưa triển khai Vercel.
+
+## Đóng gói lại sau thay đổi
+
+Tại thư mục gốc repo, PowerShell:
+
+```powershell
+Compress-Archive -Path ups-browser-extension/* -DestinationPath public/ups-tracking-extension.zip -Force
+```

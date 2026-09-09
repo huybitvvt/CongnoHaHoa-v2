@@ -36,6 +36,7 @@ import { SalesRouteManagement } from "@/components/SalesRouteManagement";
 import { StaffManagement } from "@/components/StaffManagement";
 import { SummaryCards } from "@/components/SummaryCards";
 import { ZaloContacts } from "@/components/ZaloContacts";
+import { UpsTracking } from "@/components/UpsTracking";
 import { money, toNumber } from "@/lib/format";
 import { TAB_ROUTES } from "@/lib/routes";
 import { hasSupabaseConfig, supabase } from "@/lib/supabase";
@@ -276,6 +277,7 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
           <NavButton href={TAB_ROUTES.routes} icon={<Route />} label="Tuyến" active={activeTab === "routes"} onNavigate={() => setMenuOpen(false)} />
           <NavButton href={TAB_ROUTES.sales_routes} icon={<MapPinned />} label="Quản trị Sale theo tuyến" active={activeTab === "sales_routes"} onNavigate={() => setMenuOpen(false)} />
           <NavButton href={TAB_ROUTES.zalo_contacts} icon={<ContactRound />} label="Danh bạ Zalo" active={activeTab === "zalo_contacts"} onNavigate={() => setMenuOpen(false)} />
+          <NavButton href={TAB_ROUTES.ups_tracking} icon={<ReceiptText />} label="Tracking UPS" active={activeTab === "ups_tracking"} onNavigate={() => setMenuOpen(false)} />
           <NavButton icon={<Sparkles />} label="Hỏi AI" active={false} onClick={() => { setAiChatPrompt(null); setAiChatImages([]); setAiChatOpen(true); setMenuOpen(false); }} />
         </nav>
         <div className="top-actions">
@@ -288,13 +290,14 @@ export function AppShell({ activeTab }: { activeTab: TabKey }) {
       <main className="main-content">
         <div className="page-heading">
           <div><p className="eyebrow">{new Intl.DateTimeFormat("vi-VN", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }).format(new Date())}</p><h1>{pageTitle(activeTab)}</h1><p>{pageDescription(activeTab)}</p></div>
-          <div className="heading-actions"><button className="secondary-button" onClick={() => setSettingsOpen(true)}><Settings size={17} /> Cấu hình</button>{!["sales_routes", "zalo_contacts", "customers_list", "staff", "routes"].includes(activeTab) && <button className="primary-button" onClick={openCreate}><Plus size={18} /> {addLabel(activeTab)}</button>}</div>
+          <div className="heading-actions"><button className="secondary-button" onClick={() => setSettingsOpen(true)}><Settings size={17} /> Cấu hình</button>{!["sales_routes", "zalo_contacts", "customers_list", "staff", "routes", "ups_tracking"].includes(activeTab) && <button className="primary-button" onClick={openCreate}><Plus size={18} /> {addLabel(activeTab)}</button>}</div>
         </div>
 
         {error && <div className="error-banner"><span>{error}</span><button onClick={() => setError("")}><X size={17} /></button></div>}
         {toast && <div className="toast-message">{toast}</div>}
 
         {activeTab === "sales_routes" ? <SalesRouteManagement />
+          : activeTab === "ups_tracking" ? <UpsTracking key={session.user.id} userId={session.user.id} />
           : activeTab === "zalo_contacts" ? <ZaloContacts accessToken={session.access_token} onOpenDebtAi={(prompt, imageDataUrls = []) => { setAiChatPrompt(prompt || null); setAiChatImages(imageDataUrls); setAiChatOpen(true); }} />
           : activeTab === "customers_list" ? <CustomerListManagement />
           : activeTab === "staff" ? <StaffManagement />
@@ -453,6 +456,7 @@ async function fetchPaged(
 
 function initials(value: string) { return value.split(/[\s@]+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function pageTitle(tab: TabKey) {
+  if (tab === "ups_tracking") return "Tracking UPS";
   if (tab === "debts") return "Khách hàng nợ";
   if (tab === "payments") return "Khách hàng trả nợ";
   if (tab === "returns") return "Hàng thu hồi";
@@ -464,6 +468,7 @@ function pageTitle(tab: TabKey) {
   return "Tổng quan công nợ";
 }
 function pageDescription(tab: TabKey) {
+  if (tab === "ups_tracking") return "Tra cứu lần lượt mã UPS và cập nhật trạng thái ngay trong bảng.";
   if (tab === "sales_routes") return "Theo dõi kết quả gọi khách, doanh thu, phản hồi thị trường và kế hoạch bán hàng từng tuyến.";
   if (tab === "zalo_contacts") return "Lưu liên hệ và mở đúng cuộc hội thoại trên Zalo Web chỉ bằng một lần bấm.";
   if (tab === "payments") return "Xem khoản nợ chưa tất toán, ghi nhận thanh toán và theo dõi lịch sử trả cho từng khách hàng.";

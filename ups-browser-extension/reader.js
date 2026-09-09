@@ -1,0 +1,38 @@
+/* Runs in the isolated extension world. Never infer status from the full milestone list. */
+function readUpsDocument(doc, code) {
+  const visible = (node) => node && node.getClientRects().length > 0;
+  const body = doc.body?.innerText || '';
+  if (/access denied|verify you are human|verify you're human|unusual traffic|robot verification|security check|temporarily blocked/i.test(body)) {
+    return { ok: false, fatal: true, error: 'UPS yêu cầu xác minh hoặc đang chặn truy cập. Mở UPS để kiểm tra rồi thử lại.' };
+  }
+  if (/we could not locate|could not find.*shipment|tracking number.*not valid|invalid tracking number|unable to locate.*shipment/i.test(body)) {
+    return { ok: false, error: 'UPS không tìm thấy mã vận đơn này.' };
+  }
+  // Bind the result to a visibly rendered tracking number, not just the requested URL.
+  if (!/^[A-Z0-9]{7,34}$/.test(code)
+    || !new RegExp(`(?:^|[^A-Z0-9])${code}(?:$|[^A-Z0-9])`).test(body.toUpperCase())) return null;
+  const selectors = [
+    '#st_App_PkgSts', '#st_App_PkgSts span',
+    '[data-testid="shipment-status"]', '[data-testid="package-status"]',
+    '[id^="st_App_PkgSts"]',
+  ];
+  let candidates = selectors.flatMap((selector) => [...doc.querySelectorAll(selector)]).filter(visible);
+  // Semantic current markers are allowed; ordinary timeline labels are not.
+  if (!candidates.length) candidates = [...doc.querySelectorAll('[aria-current="step"], [aria-current="true"]')].filter(visible);
+  const statuses = new Map([
+    ['delivered', 'Đã giao hàng'], ['out for delivery', 'Đang giao hàng'],
+    ['on the way', 'Đang vận chuyển'], ['shipped', 'Đã gửi hàng'],
+    ['in transit', 'Đang vận chuyển'], ['label created', 'Đã tạo nhãn'],
+    ['we have your package', 'UPS đã nhận hàng'],
+    ['dropped off at ups access point by customer', 'Đã gửi tại UPS Access Point'],
+    ['exception', 'Có sự cố'], ['delivery exception', 'Có sự cố giao hàng'],
+    ['delay', 'Bị chậm'], ['delayed', 'Bị chậm'],
+    ['return to sender', 'Hoàn về người gửi'], ['returned to sender', 'Đã hoàn về người gửi'],
+  ]);
+  const matches = candidates.map((node) => node.innerText.replace(/\s+/g, ' ').trim())
+    .filter((text) => statuses.has(text.toLowerCase()));
+  const unique = [...new Set(matches.map((text) => text.toLowerCase()))];
+  if (unique.length !== 1) return null;
+  return { ok: true, code, status: statuses.get(unique[0]), rawStatus: matches[0], checkedAt: new Date().toISOString() };
+}
+globalThis.readUpsDocument = readUpsDocument;
