@@ -13,9 +13,9 @@ function readUpsDocument(doc, code) {
   if (!/^[A-Z0-9]{7,34}$/.test(code)
     || !new RegExp(`(?:^|[^A-Z0-9])${code}(?:$|[^A-Z0-9])`).test(body.toUpperCase())) return null;
   const selectors = [
+    'app-header-tile #stApp_nameKey',
     '#st_App_PkgSts', '#st_App_PkgSts span',
     '[data-testid="shipment-status"]', '[data-testid="package-status"]',
-    '[id^="st_App_PkgSts"]',
   ];
   let candidates = selectors.flatMap((selector) => [...doc.querySelectorAll(selector)]).filter(visible);
   // New UPS layout: status heading and tracking number share a compact banner.
@@ -40,7 +40,15 @@ function readUpsDocument(doc, code) {
     ['delay', 'Bị chậm'], ['delayed', 'Bị chậm'],
     ['return to sender', 'Hoàn về người gửi'], ['returned to sender', 'Đã hoàn về người gửi'],
   ]);
-  const matches = candidates.map((node) => node.innerText.replace(/\s+/g, ' ').trim())
+  const statusText = (node) => {
+    if (!node.cloneNode) return node.innerText;
+    const copy = node.cloneNode(true);
+    // Material icon ligatures (e.g. check_circle) are text in the DOM, not status.
+    copy.querySelectorAll('.icon, .material-icons, .ups-material-symbols, [aria-hidden="true"], .sr-only')
+      .forEach((icon) => icon.remove());
+    return copy.textContent || '';
+  };
+  const matches = candidates.map((node) => statusText(node).replace(/\s+/g, ' ').trim())
     .filter((text) => statuses.has(text.toLowerCase()));
   const unique = [...new Set(matches.map((text) => text.toLowerCase()))];
   if (unique.length !== 1) return null;

@@ -1,4 +1,10 @@
-# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.1
+# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.2
+
+## Bản 0.1.2
+
+Đọc đúng `app-header-tile #stApp_nameKey` trong DOM UPS người dùng cung cấp, loại chữ biểu tượng `check_circle` trên bản sao DOM. Bỏ selector tiền tố `st_App_PkgSts` vì nó trỏ cả ngày/giờ giao, không phải trạng thái. Kiểm tra trên Edge với toàn bộ DOM đã cung cấp: bản cũ trả null, bản mới trả Delivered; đổi trạng thái sang On the Way được đọc đúng, mã khác bị từ chối. 13 test UPS qua. File DOM riêng của người dùng không đưa vào repo hoặc bản cài.
+
+Để cập nhật: thay file trong thư mục tiện ích đã cài bằng ZIP mới, bấm Tải lại tiện ích và tải lại website; phải hiện **Đã kết nối UPS 0.1.2**.
 
 ## Cập nhật từ 0.1.0
 

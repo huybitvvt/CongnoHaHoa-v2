@@ -122,3 +122,18 @@ test('reads heading in compact tracking banner, excluding generic page headings'
   assert.equal(reader()(doc(code, { 'h1, h2, h3, [role="heading"]': [heading] }), code), null);
 });
 
+test('reads actual UPS header and strips the Material icon text without changing DOM', () => {
+  const header = {
+    ...node('Delivered check_circle'),
+    cloneNode() {
+      const copy = { textContent: 'Delivered check_circle' };
+      copy.querySelectorAll = () => [{ remove: () => { copy.textContent = 'Delivered'; } }];
+      return copy;
+    },
+  };
+  const result = reader()(doc(`${code} Delivered check_circle`, { 'app-header-tile #stApp_nameKey': [header] }), code);
+  assert.equal(result.rawStatus, 'Delivered');
+  assert.equal(result.status, 'Đã giao hàng');
+  assert.equal(header.innerText, 'Delivered check_circle');
+});
+
