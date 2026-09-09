@@ -5,7 +5,7 @@ New-Item -ItemType Directory -Path $packageStage -Force | Out-Null
 # Explicit allowlist: never package .env, local tokens, databases, logs or browser profiles.
 Copy-Item -LiteralPath (Join-Path $packageRoot 'runner') -Destination $packageStage -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $packageRoot 'ups-browser-extension') -Destination $packageStage -Recurse -Force
-$packageJson = '{"name":"speego-ups-runner","version":"0.4.0","private":true,"type":"module","engines":{"node":">=24"},"dependencies":{"@supabase/supabase-js":"2.112.4"}}'
+$packageJson = '{"name":"speego-ups-runner","version":"0.4.1","private":true,"type":"module","engines":{"node":">=24"},"dependencies":{"@supabase/supabase-js":"2.112.4"}}'
 [IO.File]::WriteAllText((Join-Path $packageStage 'package.json'), $packageJson)
 Push-Location $packageStage
 try {

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Queue, INTERVAL, LEASE, mergeHistory, validateResult } from '../runner/queue.mjs';
+import { shouldDiscard } from '../runner/observations.mjs';
 
 const row = (id = 'a') => ({ id, tracking_code: `1Z00000000000000${id.toUpperCase().padStart(2, '0')}`, checked_at: null, history: [] });
 const result = (code, at, overrides = {}) => ({ ok: true, code, mode: 'full', status: 'Đang vận chuyển', rawStatus: 'On the Way',
@@ -87,4 +88,82 @@ test('2000 jobs drain across six slots without loss, duplicate leases, or an unb
   assert.equal(stats.total, 2000); assert.equal(stats.successful, 2000);
   assert.equal(stats.active, 0); assert.equal(stats.outbox, 0); assert.equal(stats.due, 0);
   q.close();
+});
+
+test('100 -> 200 -> 400 while working preserves leases, schedules and successful observations', () => {
+  const q = new Queue(':memory:'); const base = 1_800_000_000_000;
+  const rows = Array.from({ length: 400 }, (_, i) => row(String(i).padStart(3, '0')));
+  q.sync(rows.slice(0, 100), base);
+  const working = q.claim('profile-1', base);
+  q.sync(rows.slice(0, 200), base + 1000);
+  assert.equal(q.stats(base + 1000).total, 200);
+  assert.equal(q.db.prepare('SELECT token FROM jobs WHERE id=?').get(working.id).token, working.token);
+  receive(q, working, base + 2000);
+  const current = { ...rows.find((r) => r.id === working.id), checked_at: new Date(base + 2000).toISOString() };
+  q.acknowledge(q.pending()[0], current, base + 2000);
+  const due = q.db.prepare('SELECT due FROM jobs WHERE id=?').get(working.id).due;
+  q.sync(rows, base + 3000); q.sync(rows, base + 4000);
+  assert.equal(q.stats(base + 4000).total, 400);
+  assert.equal(q.db.prepare('SELECT due FROM jobs WHERE id=?').get(working.id).due, due);
+  assert.equal(q.stats(base + 4000).due, 399);
+  q.close();
+});
+
+test('refresh during a quick lease cannot change its requested mode or baseline', () => {
+  const q = new Queue(':memory:'); const base = 1_800_000_000_000;
+  q.sync([row()], base); let job = q.claim('profile-1', base);
+  receive(q, job, base + 1000); const current = { ...row(), checked_at: new Date(base + 1000).toISOString() };
+  q.acknowledge(q.pending()[0], current, base + 1000);
+  job = q.claim('profile-1', base + INTERVAL + 1000);
+  assert.equal(job.mode, 'quick');
+  q.sync([row()], base + INTERVAL + 2000); // A concurrent reset on the website.
+  receive(q, job, base + INTERVAL + 3000, { mode: 'quick', history: undefined });
+  assert.equal(JSON.parse(q.pending()[0].payload).ok, true);
+  assert.equal(JSON.parse(q.pending()[0].snapshot).checked_at, current.checked_at);
+  q.close();
+});
+
+test('changing an idle tracking code resets full-read state and retry cooldown', () => {
+  const q = new Queue(':memory:'); const base = 1_800_000_000_000;
+  q.sync([row()], base); const job = q.claim('profile-1', base);
+  receive(q, job, base + 1000); q.acknowledge(q.pending()[0], { ...row(), checked_at: new Date(base).toISOString() }, base + 1000);
+  q.sync([{ ...row(), tracking_code: row('b').tracking_code }], base + 2000);
+  const next = q.claim('profile-1', base + 2000);
+  assert.equal(next.code, row('b').tracking_code); assert.equal(next.mode, 'full'); q.close();
+});
+
+test('late result for a reassigned shipment is discarded, new code receives a full read', () => {
+  const q = new Queue(':memory:'); q.sync([row()], 1000); const job = q.claim('profile-1', 1000);
+  const replacement = { ...row(), tracking_code: row('b').tracking_code };
+  q.sync([replacement], 1500); receive(q, job, 2000);
+  const item = q.pending()[0]; assert.equal(shouldDiscard(item, replacement), true);
+  q.discard(item, replacement, 3000);
+  const next = q.claim('profile-1', 3000);
+  assert.equal(next.code, replacement.tracking_code); assert.equal(next.mode, 'full');
+  assert.equal(q.pending().length, 0); q.close();
+});
+
+test('deleting an in-flight shipment retains its capacity until its result is discarded', () => {
+  const q = new Queue(':memory:'); q.sync([row()], 1000); const job = q.claim('profile-1', 1000);
+  q.sync([], 1500); assert.equal(q.stats(1500).active, 1);
+  receive(q, job, 2000); const item = q.pending()[0];
+  assert.equal(shouldDiscard(item, null), true); q.discard(item, null, 3000);
+  assert.equal(q.stats(3000).active, 0); assert.equal(q.claim('profile-1', 3000), null); q.close();
+});
+
+test('an old failed attempt cannot overwrite a newer successful observation', () => {
+  const snapshot = row(); const current = { ...row(), checked_at: new Date(2000).toISOString() };
+  const item = { code: row().tracking_code, snapshot: JSON.stringify(snapshot), payload: JSON.stringify({ ok: false, error: 'timeout' }) };
+  assert.equal(shouldDiscard(item, current), true);
+  assert.equal(shouldDiscard(item, snapshot), false);
+  item.payload = JSON.stringify(result(item.code, 1000));
+  assert.equal(shouldDiscard(item, current), true);
+  item.payload = JSON.stringify(result(item.code, 3000));
+  assert.equal(shouldDiscard(item, current), false);
+});
+
+test('new additions cannot jump ahead of existing overdue jobs forever', () => {
+  const q = new Queue(':memory:'); q.sync([row('z')], 1000);
+  q.sync([row('z'), row('a')], 2000);
+  assert.equal(q.claim('profile-1', 2000).code, row('z').tracking_code); q.close();
 });

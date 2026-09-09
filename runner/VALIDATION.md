@@ -1,5 +1,9 @@
 # Kiểm chứng ngày 10/09/2026
 
+## Bổ sung Runner 0.4.1
+
+62 test tự động đã qua, gồm 7 kiểm thử mới: tăng 100 → 200 → 400 trong lúc tra, làm mới giữa lượt đọc nhanh, đổi mã khi rảnh/đang chạy, xóa khi đang chạy, kết quả lỗi đến muộn, và thứ tự ưu tiên khi liên tục thêm mã. Migration đích kiểm tra việc lưu trữ quan sát mã cũ và giữ trường thu tiền bằng subtransaction tự rollback; không giữ lại đơn thử. Các số đo UPS thật bên dưới thuộc 0.4.0; lần gia cố này không đo lại tốc độ UPS.
+
 ## Phạm vi
 
 Đã thử trên máy phát triển Intel Core i3-1215U, 6 nhân/8 luồng, khoảng 8 GB RAM, Windows và Edge; không phải máy nhà 6 nhân/12 luồng, RAM 16 GB. Dữ liệu đích có 54 đơn ở thời điểm thử. Không thay đổi project nguồn.

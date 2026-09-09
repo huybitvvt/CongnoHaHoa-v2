@@ -65,12 +65,18 @@ export class Queue {
     this.transaction(() => {
       this.db.exec('UPDATE jobs SET active=0');
       const insert = this.db.prepare(`INSERT INTO jobs(id,code,snapshot,due,full_at) VALUES (?,?,?,?,0)
-        ON CONFLICT(id) DO UPDATE SET active=1, snapshot=excluded.snapshot,
+        ON CONFLICT(id) DO UPDATE SET active=1,
+        snapshot=CASE WHEN jobs.token IS NULL THEN excluded.snapshot ELSE jobs.snapshot END,
+        due=CASE WHEN jobs.token IS NULL AND jobs.code<>excluded.code THEN excluded.due ELSE jobs.due END,
+        full_at=CASE WHEN jobs.token IS NULL AND jobs.code<>excluded.code THEN 0 ELSE jobs.full_at END,
+        fingerprint=CASE WHEN jobs.token IS NULL AND jobs.code<>excluded.code THEN NULL ELSE jobs.fingerprint END,
+        failures=CASE WHEN jobs.token IS NULL AND jobs.code<>excluded.code THEN 0 ELSE jobs.failures END,
+        delivered_count=CASE WHEN jobs.token IS NULL AND jobs.code<>excluded.code THEN 0 ELSE jobs.delivered_count END,
         code=CASE WHEN jobs.token IS NULL THEN excluded.code ELSE jobs.code END`);
       for (const row of records) {
         if (!/^[A-Z0-9]{7,34}$/.test(row.tracking_code)) continue;
         insert.run(row.id, row.tracking_code, JSON.stringify(row),
-          row.checked_at ? Math.min(now, Date.parse(row.checked_at) + this.interval) : 0);
+          row.checked_at ? Math.min(now, Date.parse(row.checked_at) + this.interval) : now);
       }
     });
   }
@@ -111,6 +117,21 @@ export class Queue {
     return this.db.prepare(`SELECT o.*, j.snapshot,j.code,j.fingerprint,j.full_at,j.failures,j.delivered_count
       FROM outbox o JOIN jobs j ON j.id=o.job_id ORDER BY o.rowid LIMIT 100`).all();
   }
+  discard(item, current, now = Date.now()) {
+    // A deleted/reassigned shipment or a newer observation must not advance the old job's success state.
+    this.transaction(() => {
+      if (!current) {
+        this.db.prepare('UPDATE jobs SET active=0,token=NULL,worker=NULL WHERE id=? AND token=?').run(item.job_id, item.token);
+      } else {
+        const reassigned = current.tracking_code !== item.code;
+        const due = reassigned ? now : Math.max(now, (Date.parse(current.checked_at) || now) + this.interval);
+        this.db.prepare(`UPDATE jobs SET snapshot=?,code=?,due=?,full_at=?,fingerprint=?,failures=0,
+          delivered_count=0,token=NULL,worker=NULL WHERE id=? AND token=?`).run(JSON.stringify(current),
+          current.tracking_code, due, reassigned ? 0 : item.full_at, reassigned ? null : item.fingerprint, item.job_id, item.token);
+      }
+      this.db.prepare('DELETE FROM outbox WHERE token=?').run(item.token);
+    });
+  }
   acknowledge(item, current, now = Date.now()) {
     const result = JSON.parse(item.payload);
     const changed = result.ok && item.fingerprint && item.fingerprint !== fingerprint(result);
@@ -131,7 +152,7 @@ export class Queue {
   stats(now = Date.now()) {
     this.expire(now);
     const counts = this.db.prepare(`SELECT count(*) total, sum(due<=? AND token IS NULL) due,
-      sum(token IS NOT NULL) active, sum(failures>0) errors FROM jobs WHERE active=1`).get(now);
+      (SELECT count(*) FROM jobs WHERE token IS NOT NULL) active, sum(failures>0) errors FROM jobs WHERE active=1`).get(now);
     const recent = this.db.prepare('SELECT * FROM measurements WHERE at>? ORDER BY duration').all(now - 15 * 60_000);
     const successes = recent.filter((r) => r.ok);
     return { ...counts, outbox: this.db.prepare('SELECT count(*) n FROM outbox').get().n,

@@ -355,13 +355,17 @@ export function UpsTracking({ userId }: { userId: string }) {
   }, [storageKey]);
 
   useEffect(() => {
-    if (!runnerBusy || running || syncing) return;
+    if (running || syncing) return;
     let stopped = false;
+    let refreshing = false;
     const timer = setInterval(() => {
-      void fetchSpeegoRows().then((data) => { if (!stopped) setRows(data); }).catch(() => {});
+      if (refreshing) return;
+      refreshing = true;
+      void fetchSpeegoRows().then((data) => { if (!stopped) setRows(data); }).catch(() => {})
+        .finally(() => { refreshing = false; });
     }, 15_000);
     return () => { stopped = true; clearInterval(timer); };
-  }, [runnerBusy, running, syncing]);
+  }, [running, syncing]);
 
   const filteredRows = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("vi");

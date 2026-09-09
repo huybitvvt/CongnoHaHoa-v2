@@ -7,6 +7,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 import { Queue, mergeHistory } from './queue.mjs';
+import { shouldDiscard } from './observations.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const envFile = process.env.SPEEGO_RUNNER_ENV || path.join(root, '.env.runner');
@@ -57,7 +58,7 @@ const status = () => ({ ...queue.stats(), enabled, connected: now() - connectedA
   freeMemoryMB: Math.round(os.freemem() / 1024 ** 2),
   cooldownUntil, lastError, lastSync: lastSync ? new Date(lastSync).toISOString() : null,
   workers: [...workers].map(([id, w]) => ({ id, online: now() - w.at < 20_000, extension: w.version })),
-  uptimeSeconds: Math.round(process.uptime()), version: '0.4.0' });
+  uptimeSeconds: Math.round(process.uptime()), version: '0.4.1' });
 
 function launch(worker) {
   const profileDir = path.join(dataDir, 'profiles', worker);
@@ -75,13 +76,17 @@ function launch(worker) {
 
 async function refresh() {
   const rows = [];
-  for (let offset = 0; ; offset += 500) {
-    const { data, error } = await supabase.from('speego')
-      .select('id,tracking_code,status,raw_status,checked_at,history,edd,error').order('id').range(offset, offset + 499);
+  let cursor;
+  for (;;) {
+    let query = supabase.from('speego')
+      .select('id,tracking_code,status,raw_status,checked_at,edd,error').order('id').limit(500);
+    if (cursor) query = query.gt('id', cursor);
+    const { data, error } = await query;
     if (error) throw new Error(`Đọc bảng đích: ${error.message}`);
     rows.push(...data);
     if (data.length < 500) break;
-    if (offset >= 100_000) throw new Error('Vượt giới hạn an toàn 100.000 đơn; chưa thay hàng đợi.');
+    cursor = data[data.length - 1].id;
+    if (rows.length >= 100_000) throw new Error('Vượt giới hạn an toàn 100.000 đơn; chưa thay hàng đợi.');
   }
   queue.sync(rows);
   lastSync = now();
@@ -90,14 +95,12 @@ async function refresh() {
 async function upload() {
   for (const item of queue.pending()) {
     const result = JSON.parse(item.payload);
+    const fields = 'id,tracking_code,status,raw_status,checked_at,edd,error'
+      + (result.ok && result.mode === 'full' ? ',history' : '');
     const { data: current, error: readError } = await supabase.from('speego')
-      .select('id,tracking_code,status,raw_status,checked_at,history,edd,error').eq('id', item.job_id).maybeSingle();
+      .select(fields).eq('id', item.job_id).maybeSingle();
     if (readError) throw new Error(`Đọc trước khi lưu: ${readError.message}`);
-    if (!current || current.tracking_code !== item.code) { queue.acknowledge(item, current || JSON.parse(item.snapshot)); continue; }
-    // Do not let an offline/late result overwrite a newer observation from another client.
-    if (result.ok && current.checked_at && Date.parse(current.checked_at) > Date.parse(result.checkedAt)) {
-      queue.acknowledge(item, current); continue;
-    }
+    if (shouldDiscard(item, current)) { queue.discard(item, current); continue; }
     const patch = result.ok ? {
       status: result.status, raw_status: result.rawStatus, checked_at: result.checkedAt, error: null,
       ...(result.edd ? { edd: result.edd } : {}),
@@ -137,7 +140,7 @@ async function tick() {
       });
       if (error) throw new Error(`Bộ điều khiển Supabase chưa sẵn sàng: ${error.message}`);
       lastHeartbeat = now();
-      if (!data?.length) { enabled = false; connectedAt = 0; lastError = 'Một máy khác đang giữ quyền chạy; chờ máy đó ngừng.'; return; }
+      if (!data?.length) { enabled = false; connectedAt = 0; lastError = 'Một phiên khác đang giữ quyền chạy. Sau khi phiên đó ngừng, có thể cần chờ tối đa 5 phút.'; return; }
       enabled = data[0].enabled;
       requested = data[0].requested_concurrency;
       connectedAt = now(); controlAt = now();
@@ -224,7 +227,7 @@ const server = http.createServer(async (request, response) => {
 });
 server.on('error', (error) => { log(error.code === 'EADDRINUSE' ? 'Bộ chạy đã mở hoặc cổng đang bận.' : 'Không mở được máy chủ cục bộ.'); process.exit(1); });
 server.listen(port, '127.0.0.1', () => {
-  log(`SpeeGo runner 0.4.0; ${profiles} profile, tối đa ${maxTabs} tab. Dữ liệu: ${dataDir}`);
+  log(`SpeeGo runner 0.4.1; ${profiles} profile, tối đa ${maxTabs} tab. Dữ liệu: ${dataDir}`);
   // This file stays on this machine; never include it in a downloadable bundle.
   fs.writeFileSync(path.join(dataDir, 'open-dashboard.url'), `[InternetShortcut]\nURL=${origin}/#${secret}\n`);
   void tick();

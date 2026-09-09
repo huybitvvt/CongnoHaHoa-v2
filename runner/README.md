@@ -1,7 +1,34 @@
-# SpeeGo UPS Runner 0.4.0
+# SpeeGo UPS Runner 0.4.1
 
 Máy nhà đề xuất: Windows, 6 nhân/12 luồng, RAM 16 GB. Bắt đầu 1 profile × 6 tab.
 Không có kết luận máy đạt 2.000 đơn/30 phút trước khi đo UPS thật.
+
+## Dùng máy nhà và laptop cùng lúc
+
+- Máy nhà chạy bộ Runner và profile UPS. Laptop chỉ cần mở website và đăng nhập tài khoản được cấp quyền; không cần cài Node hoặc extension để xem kết quả. Dữ liệu nằm chung trên Supabase, không phụ thuộc laptop có đang mở hay không.
+- Website đang mở làm mới danh sách khoảng 15 giây/lần khi không chạy tác vụ thủ công. Tab bị trình duyệt cho ngủ có thể cập nhật trễ; mở lại hoặc tải lại trang để lấy dữ liệu mới.
+- Runner đọc lại danh sách đơn trong `speego` khoảng 60 giây/lần khi kết nối bình thường. 100 mã + 100 mã mới = theo dõi 200; thêm 200 nữa = theo dõi 400. Không cần dừng hoặc khởi động lại. Chỉ giữ số tab tối đa đã đặt, không mở 400 tab.
+- Đơn mới phải **đã lưu vào bảng speego**. Nếu chỉ thêm trong hệ thống nguồn, bấm **Đồng bộ đơn tháng 9** trên web để đưa vào SpeeGo. Runner không tự gọi luồng nhập nguồn; bộ lọc nguồn hiện vẫn là tháng 9/2026.
+- Mỗi đơn thành công có lịch riêng sau 30 phút. Khi lượng việc vượt khả năng máy, các mã chờ đến lượt và có thể trễ hơn 30 phút; không mở thêm tab vượt mức để cố bù. Thêm mã mới không xóa kết quả hoặc đặt lại lịch của các mã đang có.
+- Mã trùng không được tạo thành hai dòng UPS trong bảng đích. Nếu nguồn có mã trùng/khớp mâu thuẫn, thao tác đồng bộ báo lỗi để xử lý, không âm thầm ghi đè đơn khác.
+
+## Các tình huống đã gia cố trong 0.4.1
+
+| Tình huống | Hành vi |
+|---|---|
+| Thêm 100 rồi 200 mã trong lúc tra | Nhận mã mới ở lượt làm mới; giữ công việc đang chạy và lịch cũ |
+| Đồng bộ lại cùng danh sách | Cập nhật cùng các đơn, không nhân đôi hàng đợi |
+| Đơn mới liên tục xuất hiện | Xếp theo thời điểm đến hạn; mã cũ đã quá hạn không bị mã mới chen mãi |
+| Thay mã UPS của một đơn | Supabase lưu quan sát mã cũ vào `speego_tracking_archive`, xóa trạng thái tracking hiện tại để tra đầy đủ mã mới; giữ thông tin khách và thu tiền |
+| Mã cũ trả kết quả sau khi đổi mã | Bỏ kết quả không còn khớp; không gán lịch sử mã cũ cho mã mới |
+| Xóa đơn khi tab còn đang tra | Không tạo lại đơn; tab đang chạy vẫn được tính vào giới hạn cho đến khi kết thúc/hết hạn |
+| Lỗi cũ về sau một kết quả thành công mới | Không ghi lỗi cũ đè lên kết quả mới |
+| Làm mới danh sách khi đang đọc nhanh | Giữ nguyên thông tin của lượt đã nhận, không đổi nhầm chế độ đọc |
+| Laptop tắt/mất mạng | Máy nhà tiếp tục nếu còn mạng; laptop đọc lại dữ liệu khi kết nối |
+| Máy nhà mất mạng/điện hoặc Windows restart | Mạng mất: giữ outbox, ngừng nhận việc mới khi mất liên lạc quá hạn; mở lại tiếp tục từ SQLite. Tự khởi động yêu cầu đã cài task và đăng nhập Windows |
+| Mở thêm Runner trên laptop | Chỉ một coordinator được giữ quyền chạy cho project; nên dùng laptop để xem và điều khiển web |
+
+Không có hệ thống nào bảo đảm không gián đoạn do mất điện, hỏng ổ đĩa, CAPTCHA hoặc UPS thay giao diện. Không xóa `.runner-data` khi nâng cấp; đây là nơi giữ lịch và kết quả chưa gửi.
 
 ## Cài lần đầu
 
@@ -23,7 +50,7 @@ Task chạy khi **đăng nhập Windows**, không chạy trước màn hình đ�
 - Trên máy, mở `.runner-data\open-dashboard.url` để vào bảng điều khiển. Link có khóa cục bộ, không chia sẻ.
 - Không copy `.runner-data`, `.env.runner`, profile trình duyệt hoặc log lên Git/Vercel. Chúng có dữ liệu vận đơn và thông tin kết nối. Đặt thư mục trên tài khoản Windows riêng, chỉ người vận hành được truy cập.
 - Chương trình chỉ nghe `127.0.0.1`, kiểm tra Host, Origin và Bearer token; không mở cổng ra mạng.
-- Nhiều profile trên cùng máy dùng chung hàng đợi SQLite. Mỗi project chỉ một coordinator nhận quyền chạy; máy thứ hai chờ heartbeat máy trước hết hạn 2 phút. Không chạy hai bản bằng data directory khác nhau để tăng tải.
+- Nhiều profile trên cùng máy dùng chung hàng đợi SQLite. Mỗi project chỉ một coordinator nhận quyền chạy; máy thứ hai chờ heartbeat máy trước hết hạn 5 phút, đủ thời gian cho lượt cũ hết hạn. Khởi động lại đột ngột cũng có thể phải chờ khoảng này. Không chạy hai bản bằng data directory khác nhau để tăng tải.
 
 ## Hành vi
 
