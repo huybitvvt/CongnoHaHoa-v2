@@ -10,7 +10,7 @@ type Row = {
   error?: string;
 };
 type Response = Partial<Row> & { ok: boolean; fatal?: boolean; version?: string };
-const UPS_EXTENSION_VERSION = "0.1.6";
+const UPS_EXTENSION_VERSION = "0.1.7";
 
 function request(action: "ping" | "track", code?: string): Promise<Response> {
   return new Promise((resolve) => {

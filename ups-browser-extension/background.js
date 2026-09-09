@@ -5,7 +5,7 @@ let lastStarted = 0;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const UPS_ORIGINS = ['https://www.ups.com', 'https://ups.com'];
 const UPS_TAB_PATTERNS = ['https://www.ups.com/*', 'https://ups.com/*'];
-const VERSION = '0.1.6';
+const VERSION = '0.1.7';
 
 function withTimeout(promise, ms, label) {
   let timer;
@@ -76,6 +76,13 @@ async function readTab(tabId, code) {
   }
 }
 
+async function reloadUpsTab(tabId) {
+  const result = await withTimeout(chrome.tabs.reload(tabId, { bypassCache: true }), 5000, `RELOAD_TIMEOUT tab=${tabId}`);
+  if (result?.__timeout) return result.__timeout;
+  await pause(3000);
+  return '';
+}
+
 function allowedSender(sender) {
   try {
     const url = new URL(sender.url);
@@ -93,6 +100,7 @@ async function track(code) {
   let lastReadError = '';
   let lastStage = 'START';
   let attempts = 0;
+  let reloadedTab = false;
   try {
     await pause(Math.max(0, 3000 - (Date.now() - lastStarted)));
     lastStarted = Date.now();
@@ -148,7 +156,15 @@ async function track(code) {
         continue;
       }
       const result = read.result;
-      if (result?.pending) { lastStage += ` method=${read.method} reader=${result.readerVersion} ${result.reason}`; continue; }
+      if (result?.pending) {
+        lastStage += ` method=${read.method} reader=${result.readerVersion} ${result.reason}` + (read.bridgeError ? ` content=${read.bridgeError}` : '');
+        if (!reloadedTab && read.method === 'inject' && /INJECT_TIMEOUT|READER_NOT_READY/i.test(result.reason || '')) {
+          reloadedTab = true;
+          const reloadError = await reloadUpsTab(tabId);
+          lastStage += reloadError ? ` reload=${reloadError}` : ' reload=OK';
+        }
+        continue;
+      }
       if (!result) lastStage += ' READER_EMPTY';
       if (result) {
         keepTab = result.fatal === true;

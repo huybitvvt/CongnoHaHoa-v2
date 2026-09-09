@@ -1,4 +1,8 @@
-# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.6
+# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.7
+
+## Bản 0.1.7
+
+Chẩn đoán thực tế `method=inject reader=0.1.6 INJECT_TIMEOUT` cho thấy content script chưa chạy trên tab UPS, sau đó fallback inject bị treo. Bản này tự reload tab UPS một lần để content script được gắn lại, rồi đọc tiếp; nếu vẫn lỗi sẽ ghi thêm `content=` và `reload=` trong chẩn đoán.
 
 ## Bản 0.1.6
 
