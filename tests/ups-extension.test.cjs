@@ -159,7 +159,7 @@ function background({
   installAvailable = false,
 } = {}) {
   let listener;
-  let release;
+  const releases = [];
   const removed = [];
   let created = 0;
   let reads = 0;
@@ -170,7 +170,11 @@ function background({
     runtime: { onMessage: { addListener: (fn) => { listener = fn; } }, getManifest: () => ({ version: '0.1.0' }) },
     tabs: {
       query: async () => existing ? [{ id: 123, url: redactQueryUrl ? undefined : `https://www.ups.com/track?tracknum=${code}&requester=ST/trackdetails` }] : [],
-      create: () => { created++; return new Promise((resolve) => { release = () => resolve({ id: 123 }); }); },
+      create: () => {
+        created++;
+        const id = 122 + created;
+        return new Promise((resolve) => { releases.push(() => resolve({ id })); });
+      },
       get: async () => ({ status: tabStatus, url: redactUrl ? undefined : redirected ? 'https://www.ups.com/login' : `https://www.ups.com/track?loc=en_US&tracknum=${code}` }),
       remove: async (id) => removed.push(id),
       sendMessage: (_id, _message, callback) => {
@@ -212,7 +216,9 @@ function background({
   const sender = { url: 'https://cong-no-ha-hoa-jade.vercel.app/tracking-ups', frameId: 0, tab: { id: 9 } };
   return {
     send: (message, from = sender) => new Promise((resolve) => listener({ type: 'HAHOA_UPS', ...message }, from, resolve)),
-    release: async () => { await new Promise(setImmediate); release(); }, removed, count: () => created, reads: () => reads, contentReads: () => contentReads,
+    release: async () => { await new Promise(setImmediate); releases.shift()?.(); },
+    releaseAll: async () => { await new Promise(setImmediate); releases.splice(0).forEach((release) => release()); },
+    removed, count: () => created, reads: () => reads, contentReads: () => contentReads,
     installs: () => installs,
   };
 }
@@ -230,16 +236,15 @@ test('accepts messages from the cloned Vercel deployment', async () => {
   const sender = { url: 'https://cong-no-ha-hoa-v2.vercel.app/tracking-ups', frameId: 0, tab: { id: 10 } };
   assert.equal((await bg.send({ action: 'ping' }, sender)).ok, true);
 });
-test('serializes requests across app tabs and closes only its own successful tab', async () => {
+test('runs twenty requests concurrently and closes every successful owned tab', async () => {
   const bg = background();
-  const pending = bg.send({ action: 'track', code });
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal((await bg.send({ action: 'track', code })).fatal, true);
-  await bg.release();
-  assert.equal((await pending).ok, true);
-  assert.deepEqual(bg.removed, [123]);
-  assert.equal(bg.count(), 1);
+  const requests = Array.from({ length: 20 }, () => bg.send({ action: 'track', code }));
+  await new Promise(setImmediate);
+  assert.equal(bg.count(), 20);
+  await bg.releaseAll();
+  const results = await Promise.all(requests);
+  assert.equal(results.every((result) => result.ok), true);
+  assert.deepEqual(bg.removed.sort((a, b) => a - b), Array.from({ length: 20 }, (_, index) => 123 + index));
 });
 test('keeps tab and reports a fatal result when UPS asks for verification or redirects', async () => {
   for (const options of [{ result: { ok: false, fatal: true, error: 'Verification' } }, { redirected: true }]) {

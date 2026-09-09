@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Hà Hoà UPS Tracking",
-  "version": "0.2.1",
+  "name": "SpeeGo UPS Tracking",
+  "version": "0.3.0",
   "minimum_chrome_version": "110",
-  "description": "Đọc trạng thái và toàn bộ lịch sử hành trình từ tab UPS khi người dùng yêu cầu trên Hà Hoà.",
+  "description": "Đọc trạng thái và toàn bộ lịch sử hành trình từ tab UPS khi người dùng yêu cầu trên SpeeGo.",
   "permissions": ["scripting", "tabs"],
   "host_permissions": ["https://www.ups.com/*", "https://ups.com/*"],
   "background": { "service_worker": "background.js" },

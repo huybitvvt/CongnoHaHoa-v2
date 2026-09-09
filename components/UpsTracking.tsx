@@ -15,7 +15,6 @@ type TrackingEvent = {
 type Row = {
   code: string;
   orderId?: string;
-  handler?: string;
   customerName?: string;
   phone?: string;
   createdAt?: string;
@@ -32,7 +31,6 @@ type Row = {
 type OrderDraft = {
   orderId: string;
   code: string;
-  handler: string;
   customerName: string;
   phone: string;
   createdAt: string;
@@ -44,7 +42,7 @@ type OrderDraft = {
 type Response = Partial<Row> & { ok: boolean; fatal?: boolean; version?: string };
 type ShipmentStep = 1 | 2 | 3 | 4 | 5;
 
-const UPS_EXTENSION_VERSION = "0.2.1";
+const UPS_EXTENSION_VERSION = "0.3.0";
 const usd = new Intl.NumberFormat("vi-VN", { style: "currency", currency: "USD" });
 
 function today() {
@@ -54,7 +52,7 @@ function today() {
 }
 
 function emptyDraft(): OrderDraft {
-  return { orderId: "", code: "", handler: "", customerName: "", phone: "", createdAt: today(), amount: "", edd: "", collected: false };
+  return { orderId: "", code: "", customerName: "", phone: "", createdAt: today(), amount: "", edd: "", collected: false };
 }
 
 function cleanString(value: unknown, maxLength: number) {
@@ -106,7 +104,6 @@ function normalizeSavedRow(value: unknown): Row | null {
   return {
     code,
     orderId: cleanString(record.orderId, 32) || defaultOrderId(code),
-    handler: cleanString(record.handler, 80) || undefined,
     customerName: cleanString(record.customerName, 120) || undefined,
     phone: cleanString(record.phone, 40) || undefined,
     createdAt: cleanString(record.createdAt, 24) || undefined,
@@ -189,7 +186,7 @@ export function UpsTracking({ userId }: { userId: string }) {
   const [input, setInput] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [running, setRunning] = useState(false);
-  const [current, setCurrent] = useState("");
+  const [activeCodes, setActiveCodes] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
   const [connection, setConnection] = useState("Chưa kiểm tra kết nối");
   const [createOpen, setCreateOpen] = useState(false);
@@ -198,7 +195,6 @@ export function UpsTracking({ userId }: { userId: string }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [expanded, setExpanded] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
-  const stop = useRef(false);
   const mounted = useRef(true);
   const locked = useRef(false);
   const storageKey = `hahoa-ups-v1:${userId}`;
@@ -214,7 +210,7 @@ export function UpsTracking({ userId }: { userId: string }) {
         if (mounted.current) setConnection(connectionLabel(response));
       });
     }, 0);
-    return () => { mounted.current = false; stop.current = true; window.clearTimeout(timer); };
+    return () => { mounted.current = false; window.clearTimeout(timer); };
   }, [storageKey]);
 
   useEffect(() => {
@@ -226,7 +222,7 @@ export function UpsTracking({ userId }: { userId: string }) {
   const filteredRows = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("vi");
     return rows.filter((row) => {
-      if (query && ![row.orderId, row.code, row.handler, row.customerName, row.phone]
+      if (query && ![row.orderId, row.code, row.customerName, row.phone]
         .some((value) => value?.toLocaleLowerCase("vi").includes(query))) return false;
       if (statusFilter === "collected") return row.collected;
       if (statusFilter !== "all" && orderState(row).className !== statusFilter) return false;
@@ -235,6 +231,7 @@ export function UpsTracking({ userId }: { userId: string }) {
   }, [rows, search, statusFilter]);
 
   const allSelected = filteredRows.length > 0 && filteredRows.every((row) => selected.includes(row.code));
+  const pendingCount = rows.filter((row) => !row.checkedAt).length;
 
   function save(next: Row[]) {
     setRows(next);
@@ -273,6 +270,7 @@ export function UpsTracking({ userId }: { userId: string }) {
 
   function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (running) { setNotice("Đợi lượt tra hiện tại hoàn tất rồi thêm đơn mới."); return; }
     const code = draft.code.trim().toUpperCase();
     const orderId = normalizeOrderId(draft.orderId);
     if (!/^[A-Z0-9]{7,34}$/.test(code)) { setNotice("Mã vận đơn UPS không hợp lệ."); return; }
@@ -284,7 +282,6 @@ export function UpsTracking({ userId }: { userId: string }) {
     const row: Row = {
       code,
       orderId,
-      handler: draft.handler.trim() || undefined,
       customerName: draft.customerName.trim() || undefined,
       phone: draft.phone.trim() || undefined,
       createdAt: draft.createdAt || today(),
@@ -300,16 +297,18 @@ export function UpsTracking({ userId }: { userId: string }) {
   }
 
   function toggleCollected(code: string) {
+    if (running) return;
     save(rows.map((row) => row.code === code ? { ...row, collected: !row.collected } : row));
   }
 
-  async function run(errorsOnly = false) {
+  async function run() {
     if (locked.current) return;
     locked.current = true;
-    stop.current = false;
     setRunning(true);
     setNotice("");
     let next = [...rows];
+    let successful = 0;
+    let failed = 0;
     try {
       const ping = await request("ping");
       if (!mounted.current) return;
@@ -319,26 +318,31 @@ export function UpsTracking({ userId }: { userId: string }) {
         setNotice(`Hãy tải tiện ích UPS ${UPS_EXTENSION_VERSION}, giải nén thay bản cũ rồi bấm Tải lại trong Chrome/Edge.`);
         return;
       }
-      for (let index = 0; index < next.length; index++) {
-        if (stop.current || !mounted.current) break;
-        const row = next[index];
-        if (errorsOnly && !row.error) continue;
-        setCurrent(row.code);
+      const candidates = next.filter((row) => !row.checkedAt);
+      if (!candidates.length) {
+        setNotice("Không có vận đơn chưa tra. Các vận đơn đã có kết quả được giữ nguyên.");
+        return;
+      }
+      setActiveCodes(candidates.map((row) => row.code));
+      await Promise.all(candidates.map(async (row) => {
         const result = await request("track", row.code);
-        if (!mounted.current) break;
+        if (!mounted.current) return;
         if (result.ok && result.code === row.code && typeof result.status === "string"
           && typeof result.checkedAt === "string") {
-          next = next.map((item, i) => i === index ? { ...row, status: result.status,
+          successful++;
+          next = next.map((item) => item.code === row.code ? { ...item, status: result.status,
             rawStatus: result.rawStatus, checkedAt: result.checkedAt, history: normalizeHistory(result.history), error: undefined } : item);
         } else {
-          next = next.map((item, i) => i === index ? { ...item, error: result.error || "Kết quả không khớp mã yêu cầu." } : item);
+          failed++;
+          next = next.map((item) => item.code === row.code ? { ...item, error: result.error || "Kết quả không khớp mã yêu cầu." } : item);
         }
         save(next);
-        if (result.fatal) { setNotice(result.error || "Đã dừng lượt tra cứu."); break; }
-      }
+        setActiveCodes((codes) => codes.filter((code) => code !== row.code));
+      }));
+      setNotice(`Đã tra đồng thời ${candidates.length} vận đơn: ${successful} thành công, ${failed} lỗi. Kết quả đã được lưu.`);
     } finally {
       locked.current = false;
-      if (mounted.current) { setRunning(false); setCurrent(""); }
+      if (mounted.current) { setRunning(false); setActiveCodes([]); }
     }
   }
 
@@ -346,10 +350,10 @@ export function UpsTracking({ userId }: { userId: string }) {
     const escape = (value: unknown) => `"${String(value ?? "").replace(/^[=+@-]/, "'$&").replaceAll('"', '""')}"`;
     const historyRows = rows.flatMap((row) => (row.history?.length ? row.history : [{
       status: row.status || "", rawStatus: row.rawStatus || "",
-    }]).map((event) => [row.orderId, row.code, row.handler, row.customerName, row.phone, row.createdAt,
+    }]).map((event) => [row.orderId, row.code, row.customerName, row.phone, row.createdAt,
       row.amount, row.edd, row.collected ? "Đã thu tiền" : "Chưa thu", event.status, event.rawStatus,
       event.date, event.time, event.location, event.details, row.checkedAt, row.error]));
-    const csv = [["Mã đơn", "Mã UPS", "Nhân viên", "Khách hàng", "SĐT", "Ngày tạo", "Số tiền USD", "EDD",
+    const csv = [["Mã đơn", "Mã UPS", "Khách hàng", "SĐT", "Ngày tạo", "Số tiền USD", "EDD",
       "Thu tiền", "Trạng thái sự kiện", "Trạng thái gốc", "Ngày UPS", "Giờ UPS", "Địa điểm",
       "Chi tiết", "Lần tra thành công", "Lỗi lần tra mới nhất"], ...historyRows]
       .map((line) => line.map(escape).join(",")).join("\r\n");
@@ -374,7 +378,7 @@ export function UpsTracking({ userId }: { userId: string }) {
   return <section className="ups-tracking ups-orders-page">
     <div className="ups-order-tools">
       <div className="ups-order-tools-main">
-        <div className="ups-connection-state"><i className={connection.startsWith("Đã kết nối") ? "connected" : ""} /><div><strong>{connection}</strong><small>Tiện ích đọc trạng thái và lịch sử UPS trong trình duyệt</small></div></div>
+        <div className="ups-connection-state"><i className={connection.startsWith("Đã kết nối") ? "connected" : ""} /><div><strong>{connection}</strong><small>Tiện ích tra đồng thời các vận đơn chưa có kết quả</small></div></div>
         <div className="ups-order-tool-actions">
           <a className="secondary-button" href={`/ups-tracking-extension.zip?v=${UPS_EXTENSION_VERSION}`} download>Tải tiện ích</a>
           <button className="secondary-button" disabled={running} onClick={async () => {
@@ -382,7 +386,7 @@ export function UpsTracking({ userId }: { userId: string }) {
             setConnection(connectionLabel(result));
           }}>Kiểm tra kết nối</button>
           <button className="secondary-button" disabled={!rows.length} onClick={exportCsv}>Xuất CSV</button>
-          <button className="primary-button" disabled={running || !rows.length} onClick={() => void run()}>Cập nhật tracking</button>
+          <button className="primary-button" disabled={running || !pendingCount} onClick={() => void run()}>{running ? `Đang tra ${activeCodes.length} đơn` : `Tra ${pendingCount} đơn chưa tra`}</button>
         </div>
       </div>
 
@@ -394,8 +398,6 @@ export function UpsTracking({ userId }: { userId: string }) {
           <div className="ups-actions">
             <button className="secondary-button" disabled={running || !input.trim()} onClick={() => addCodes()}>Thêm vào bảng</button>
             <button className="collected-button" disabled={running || !input.trim()} onClick={() => addCodes(true)}>Thêm &amp; đánh dấu đã thu tiền</button>
-            <button className="secondary-button" disabled={running || !rows.some((row) => row.error)} onClick={() => void run(true)}>Thử lại mã lỗi</button>
-            {running && <button className="secondary-button" onClick={() => { stop.current = true; setNotice("Sẽ dừng sau mã đang tra."); }}>Dừng sau mã này</button>}
             <button className="text-button" disabled={running || !rows.length} onClick={() => {
               if (window.confirm("Xóa toàn bộ bảng đơn hàng trên trình duyệt này?")) { save([]); setSelected([]); }
             }}>Xóa bảng</button>
@@ -404,7 +406,7 @@ export function UpsTracking({ userId }: { userId: string }) {
       </details>
 
       <p className="ups-order-note">Mã đơn hàng và mã UPS là hai trường riêng. Trạng thái thu tiền được ghi nhận riêng; “Đã giao” không tự động có nghĩa là “Đã thu tiền”.</p>
-      <div role="status" aria-live="polite">{current && <p>Đang tra {current}…</p>}{notice && <p>{notice}</p>}</div>
+      <div role="status" aria-live="polite">{activeCodes.length > 0 && <p>Đang tra đồng thời {activeCodes.length} vận đơn chưa có kết quả…</p>}{notice && <p>{notice}</p>}</div>
     </div>
 
     <div className="ups-order-filter">
@@ -420,7 +422,7 @@ export function UpsTracking({ userId }: { userId: string }) {
       </select>
       {(search || statusFilter !== "all") && <button className="text-button" onClick={() => { setSearch(""); setStatusFilter("all"); }}>Đặt lại bộ lọc</button>}
       <span>{filteredRows.length.toLocaleString("vi-VN")} kết quả</span>
-      {selected.length > 0 && <button className="text-button danger-text" onClick={removeSelected}>Xóa {selected.length} đơn đã chọn</button>}
+      {selected.length > 0 && <button className="text-button danger-text" disabled={running} onClick={removeSelected}>Xóa {selected.length} đơn đã chọn</button>}
     </div>
 
     <div className="ups-orders-table-card">
@@ -429,7 +431,7 @@ export function UpsTracking({ userId }: { userId: string }) {
           <caption>{rows.length.toLocaleString("vi-VN")} tổng đơn · {rows.filter((row) => row.collected).length} đã thu tiền · {rows.filter((row) => row.error).length} mã lỗi</caption>
           <thead><tr>
             <th className="select-cell"><input type="checkbox" aria-label="Chọn tất cả đơn đang hiển thị" checked={allSelected} onChange={toggleAll} /></th>
-            <th>Mã đơn</th><th>Sự kiện Shipment</th><th>Nhân viên</th><th>Khách hàng</th><th>Ngày tạo</th><th className="number-cell">Số tiền</th><th>Trạng thái đơn</th><th>Hãng / Vận đơn</th><th>EDD dự kiến</th><th aria-label="Thao tác" />
+            <th>Mã đơn</th><th>Sự kiện Shipment</th><th>Khách hàng</th><th>Ngày tạo</th><th className="number-cell">Số tiền</th><th>Trạng thái đơn</th><th>Hãng / Vận đơn</th><th>EDD dự kiến</th><th aria-label="Thao tác" />
           </tr></thead>
           <tbody>{filteredRows.map((row) => {
             const state = orderState(row);
@@ -439,16 +441,15 @@ export function UpsTracking({ userId }: { userId: string }) {
                 <td className="select-cell"><input type="checkbox" aria-label={`Chọn đơn ${row.orderId}`} checked={selected.includes(row.code)} onChange={() => setSelected((currentIds) => currentIds.includes(row.code) ? currentIds.filter((code) => code !== row.code) : [...currentIds, row.code])} /></td>
                 <td><button className="order-id-button" onClick={() => setExpanded(isExpanded ? "" : row.code)}>{row.orderId || defaultOrderId(row.code)}</button></td>
                 <td><OrderStepper step={shipmentStep(row)} /></td>
-                <td><strong className="order-handler">{row.handler || "Chưa gán"}</strong></td>
                 <td><div className="order-customer"><strong>{row.customerName || "Chưa nhập khách hàng"}</strong>{row.phone && <small>{row.phone}</small>}</div></td>
                 <td className="order-date">{formatOrderDate(row.createdAt)}</td>
-                <td className="number-cell order-amount"><strong>{row.amount == null ? "—" : usd.format(row.amount)}</strong>{row.collected && <button onClick={() => toggleCollected(row.code)}>● Đã thu tiền</button>}</td>
-                <td><span className={`order-status ${state.className}`}>● {current === row.code ? "Đang tra" : state.label}</span></td>
+                <td className="number-cell order-amount"><strong>{row.amount == null ? "—" : usd.format(row.amount)}</strong>{row.collected && <button disabled={running} onClick={() => toggleCollected(row.code)}>● Đã thu tiền</button>}</td>
+                <td><span className={`order-status ${state.className}`}>● {activeCodes.includes(row.code) ? "Đang tra" : state.label}</span></td>
                 <td><div className="order-carrier"><b>UPS</b><a href={`https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(row.code)}`} target="_blank" rel="noreferrer">{row.code}</a></div></td>
                 <td className="order-date">{formatOrderDate(row.edd)}</td>
                 <td><button className="order-more" aria-label={`Xem chi tiết đơn ${row.orderId}`} onClick={() => setExpanded(isExpanded ? "" : row.code)}><MoreVertical size={17} /></button></td>
               </tr>
-              {isExpanded && <tr className="ups-order-detail-row"><td colSpan={11}>
+              {isExpanded && <tr className="ups-order-detail-row"><td colSpan={10}>
                 <div className="ups-order-expanded">
                   <div className="ups-order-detail-meta">
                     <div><span>Trạng thái thu tiền</span><button className={`collection-toggle${row.collected ? " is-collected" : ""}`} disabled={running} onClick={() => toggleCollected(row.code)}>{row.collected ? "Đã thu tiền" : "Chưa thu"}</button></div>
@@ -467,7 +468,7 @@ export function UpsTracking({ userId }: { userId: string }) {
                 </div>
               </td></tr>}
             </Fragment>;
-          })}{!filteredRows.length && <tr><td colSpan={11} className="ups-orders-empty">Không tìm thấy đơn hàng phù hợp.</td></tr>}</tbody>
+          })}{!filteredRows.length && <tr><td colSpan={10} className="ups-orders-empty">Không tìm thấy đơn hàng phù hợp.</td></tr>}</tbody>
         </table>
       </div>
     </div>
@@ -479,7 +480,6 @@ export function UpsTracking({ userId }: { userId: string }) {
           <div className="form-grid ups-order-form-grid">
             <label><span>Mã đơn hàng *</span><input value={draft.orderId} onChange={(event) => setDraft({ ...draft, orderId: event.target.value })} placeholder="#C537" autoFocus required /></label>
             <label><span>Mã vận đơn UPS *</span><input value={draft.code} onChange={(event) => setDraft({ ...draft, code: event.target.value.toUpperCase() })} placeholder="1Z064H260334937790" required /></label>
-            <label><span>Nhân viên</span><input value={draft.handler} onChange={(event) => setDraft({ ...draft, handler: event.target.value })} placeholder="Trúc Kiều" /></label>
             <label><span>Khách hàng</span><input value={draft.customerName} onChange={(event) => setDraft({ ...draft, customerName: event.target.value })} placeholder="Tên khách hàng" /></label>
             <label><span>Số điện thoại</span><input value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} placeholder="Số điện thoại" /></label>
             <label><span>Số tiền (USD)</span><input type="number" min="0" step="0.01" value={draft.amount} onChange={(event) => setDraft({ ...draft, amount: event.target.value })} placeholder="100.00" /></label>

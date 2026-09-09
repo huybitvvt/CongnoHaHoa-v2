@@ -1,4 +1,10 @@
-# Hà Hoà UPS Tracking — bản thử nghiệm 0.2.1
+# SpeeGo UPS Tracking — bản thử nghiệm 0.3.0
+
+## Bản 0.3.0
+
+Website chỉ gửi các vận đơn chưa có lần tra thành công. Toàn bộ vận đơn mới được mở và đọc đồng thời trên các tab UPS nền riêng; mỗi kết quả được lưu ngay khi trả về. Bỏ giới hạn một mã mỗi lượt và khoảng nghỉ ba giây. Hãng vận chuyển trên bảng được cố định là UPS.
+
+Sau cập nhật ZIP, dòng kết nối phải hiện **Đã kết nối UPS 0.3.0**. Với 20 vận đơn chưa tra, nút chính phải hiện **Tra 20 đơn chưa tra** và cả 20 tab UPS được mở trong cùng lượt.
 
 ## Bản 0.2.1
 
@@ -67,18 +73,18 @@ Không cần UPS API key. Extension đọc DOM hiển thị trên trang tracking
 1. Tải `/ups-tracking-extension.zip` từ web hoặc dùng thư mục `ups-browser-extension` trong repo.
 2. Giải nén. Mở `edge://extensions` hoặc `chrome://extensions`, bật Developer mode.
 3. Load unpacked → chọn thư mục chứa `manifest.json`.
-4. Tải lại website Hà Hoà, đăng nhập, mở **Tracking UPS** (`/tracking-ups`).
-5. Dán cột mã từ Excel → **Thêm vào bảng** → **Cập nhật tracking**.
+4. Tải lại website SpeeGo, đăng nhập, mở **Đơn hàng UPS** (`/tracking-ups`).
+5. Dán cột mã từ Excel → **Thêm vào bảng** → **Tra các đơn chưa tra**.
 
 Tiện ích này cài riêng với Zalo Bridge. Chỉ cho phép hai domain Hà Hoà được khai báo trong manifest và localhost/127.0.0.1. Preview/custom domain khác cần được thêm vào cả manifest và `allowedSender`.
 
 ## Hoạt động và giới hạn
 
-- Một mã một lần trên toàn extension; khoảng cách bắt đầu ít nhất 3 giây. Mỗi mã chờ tối đa khoảng 45 giây sau khi tạo tab.
-- Dùng lại tab UPS đúng mã nếu đang mở, nếu chưa có thì mở tab ở nền, không giành focus. Chỉ tab do tiện ích tạo mới tự đóng khi thành công. Khi UPS yêu cầu xác minh, chuyển trang hoặc không xác định được trạng thái, giữ tab để người dùng kiểm tra và dừng hàng đợi.
+- Các mã chưa tra chạy đồng thời; mỗi mã chờ tối đa khoảng 45 giây sau khi tạo tab. Số tab nền mở cùng lúc bằng số vận đơn trong lượt tra.
+- Dùng lại tab UPS đúng mã nếu đang mở, nếu chưa có thì mở tab ở nền, không giành focus. Chỉ tab do tiện ích tạo mới tự đóng khi thành công. Khi UPS yêu cầu xác minh, chuyển trang hoặc không xác định được trạng thái, giữ tab để người dùng kiểm tra.
 - Trạng thái gần nhất chỉ đọc từ vùng trạng thái riêng hoặc dấu `aria-current`. Lịch sử đọc riêng từ các dòng chi tiết có ngày/giờ sau khi mở **Show Details**; các nhãn tiến trình không có thời gian không được coi là lịch sử. Phải thấy đúng mã vận đơn trong nội dung trang.
 - Không đọc cookie/token, không gọi API riêng của UPS và không vượt CAPTCHA. Có thể cần người dùng xử lý cookie/xác minh tại tab UPS.
-- Giữ trang Hà Hoà và trình duyệt mở; rời trang dừng các mã tiếp theo. Nút Dừng chờ mã hiện tại kết thúc. Không tự chạy lại sau khi đóng/mở trình duyệt.
+- Giữ trang SpeeGo và trình duyệt mở cho tới khi cả lượt hoàn tất. Các mã đã tra thành công được lưu và không tự động tra lại ở lượt sau.
 - Bảng tối đa 500 mã, lưu localStorage theo user ID trên trình duyệt. Không chia sẻ sang máy khác hoặc ghi trạng thái vào công nợ. Lỗi lần tra mới không xóa trạng thái thành công cũ; bảng hiển thị rõ thời gian và lỗi.
 - **Delivered** là đã giao hàng, không phải đã thanh toán. Ngày/giờ trong timeline là dữ liệu UPS hiển thị; cột “Lần tra thành công” là thời gian tiện ích đọc dữ liệu.
 

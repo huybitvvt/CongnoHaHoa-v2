@@ -1,11 +1,9 @@
 importScripts('reader.js');
 
-let busy = false;
-let lastStarted = 0;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const UPS_ORIGINS = ['https://www.ups.com', 'https://ups.com'];
 const UPS_TAB_PATTERNS = ['https://www.ups.com/*', 'https://ups.com/*'];
-const VERSION = '0.2.1';
+const VERSION = '0.3.0';
 
 function withTimeout(promise, ms, label) {
   let timer;
@@ -135,8 +133,6 @@ async function track(code) {
   let reloadedTab = false;
   const installAttempted = new Set();
   try {
-    await pause(Math.max(0, 3000 - (Date.now() - lastStarted)));
-    lastStarted = Date.now();
     const openTabs = await withTimeout(queryUpsTabs(), 7000, 'QUERY_TABS_TIMEOUT');
     if (openTabs?.__timeout) return { ok: false, fatal: true, error: `Không lấy được danh sách tab UPS. Chẩn đoán ${VERSION}: ${openTabs.__timeout}` };
     let initialResult;
@@ -215,7 +211,6 @@ async function track(code) {
     return { ok: false, fatal: true, error: `Không truy cập được tab UPS. Giữ tab UPS mở rồi thử lại. Chi tiết: ${String(error?.message || error).slice(0, 220)}` };
   } finally {
     if (ownsTab && Number.isInteger(tabId) && !keepTab) await chrome.tabs.remove(tabId).catch(() => {});
-    busy = false;
   }
 }
 
@@ -226,8 +221,6 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message.action !== 'track') return false;
   const code = String(message.code || '').trim().toUpperCase();
   if (!/^[A-Z0-9]{7,34}$/.test(code)) { respond({ ok: false, error: 'Mã UPS phải có 7–34 ký tự chữ hoặc số.' }); return false; }
-  if (busy) { respond({ ok: false, fatal: true, error: 'Tiện ích đang tra mã ở một lượt khác. Chờ lượt đó xong rồi thử lại.' }); return false; }
-  busy = true;
   void track(code).then(respond);
   return true;
 });

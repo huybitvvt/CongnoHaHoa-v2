@@ -10,7 +10,7 @@ function readUpsDocument(doc, code, diagnose = false) {
     }
   }
   doc = doc || document;
-  const READER_VERSION = '0.2.1';
+  const READER_VERSION = '0.3.0';
   const pending = (reason) => diagnose ? { pending: true, reason, readerVersion: READER_VERSION } : null;
   const visible = (node) => node && typeof node.getClientRects === 'function' && node.getClientRects().length > 0;
   const queryAll = (root, selector) => {
