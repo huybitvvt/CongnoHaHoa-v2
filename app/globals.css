@@ -561,6 +561,7 @@ tbody tr:hover td { background: #fffaf5; }
 .order-date { color: #64748b; white-space: nowrap; }
 .order-amount { min-width: 100px; white-space: nowrap; }
 .order-amount > strong { color: #0f172a; font-family: Consolas, monospace; font-size: 10px; }
+.order-amount > small { display: block; margin-top: 3px; color: #64748b; font-family: Consolas, monospace; font-size: 8px; }
 .order-amount > button { display: block; margin: 4px 0 0 auto; padding: 0; color: #059669; background: transparent; border: 0; cursor: pointer; font-size: 8px; font-weight: 750; }
 .order-amount > button:disabled { cursor: not-allowed; opacity: .55; }
 .order-status { display: inline-flex; padding: 4px 8px; border: 1px solid; border-radius: 999px; font-size: 9px; font-weight: 750; white-space: nowrap; }

@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Check, FileText, House, MoreVertical, Package, Search, Truck, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Check, FileText, House, MoreVertical, Package, Search, Truck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 type TrackingEvent = {
@@ -17,10 +17,28 @@ type Row = {
   id?: string;
   code: string;
   orderId?: string;
+  sourceOrderId?: string;
+  sourceOrderCode?: string;
   customerName?: string;
   phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  marketingStaff?: string;
+  salesPerson?: string;
+  customerServiceStaff?: string;
+  deliveryPerson?: string;
+  shippingUnit?: string;
   createdAt?: string;
   amount?: number;
+  unitPrice?: number;
+  currency?: string;
+  exchangeRate?: number;
+  totalAmountVnd?: number;
+  sourceSyncedAt?: string;
   edd?: string;
   collected?: boolean;
   status?: string;
@@ -30,28 +48,36 @@ type Row = {
   history?: TrackingEvent[];
 };
 
-type OrderDraft = {
-  orderId: string;
-  code: string;
-  customerName: string;
-  phone: string;
-  createdAt: string;
-  amount: string;
-  edd: string;
-  collected: boolean;
-};
-
 type Response = Partial<Row> & { ok: boolean; fatal?: boolean; version?: string };
+type SyncResponse = { ok: boolean; error?: string; sourceRows?: number; inserted?: number; updated?: number; from?: string; before?: string };
 type ShipmentStep = 1 | 2 | 3 | 4 | 5;
 
 type SpeegoRecord = {
   id: string;
   order_id: string;
   tracking_code: string;
+  source_order_id: string | null;
+  source_order_code: string | null;
   customer_name: string | null;
   phone: string | null;
+  email: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
+  marketing_staff: string | null;
+  sales_person: string | null;
+  customer_service_staff: string | null;
+  delivery_person: string | null;
+  shipping_unit: string | null;
   order_date: string;
   amount: number | string | null;
+  unit_price: number | string | null;
+  currency: string | null;
+  exchange_rate: number | string | null;
+  total_amount_vnd: number | string | null;
+  source_synced_at: string | null;
   edd: string | null;
   collected: boolean;
   status: string | null;
@@ -67,17 +93,7 @@ const DATABASE_PAGE_SIZE = 1000;
 const MAX_ORDERS = 5000;
 const LOCAL_CACHE_LIMIT = 100;
 const DATABASE_WRITE_BATCH_SIZE = 100;
-const usd = new Intl.NumberFormat("vi-VN", { style: "currency", currency: "USD" });
-
-function today() {
-  const now = new Date();
-  const offset = now.getTimezoneOffset() * 60_000;
-  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
-}
-
-function emptyDraft(): OrderDraft {
-  return { orderId: "", code: "", customerName: "", phone: "", createdAt: today(), amount: "", edd: "", collected: false };
-}
+const SPEEGO_SELECT = "id,source_order_id,source_order_code,order_id,tracking_code,customer_name,phone,email,address,city,state,postal_code,country,marketing_staff,sales_person,customer_service_staff,delivery_person,shipping_unit,order_date,amount,unit_price,currency,exchange_rate,total_amount_vnd,source_synced_at,edd,collected,status,raw_status,checked_at,error,history";
 
 function cleanString(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
@@ -87,9 +103,32 @@ function defaultOrderId(code: string) {
   return `#${code.slice(-4).toUpperCase()}`;
 }
 
-function normalizeOrderId(value: string) {
-  const id = value.trim().toUpperCase().replace(/\s+/g, "");
-  return id.startsWith("#") ? id : `#${id}`;
+function numberValue(value: unknown) {
+  const result = Number(value);
+  return value != null && Number.isFinite(result) ? result : undefined;
+}
+
+function formatMoney(value?: number, currency = "USD") {
+  if (value == null) return "—";
+  try {
+    return new Intl.NumberFormat("vi-VN", { style: "currency", currency }).format(value);
+  } catch {
+    return `${value.toLocaleString("vi-VN")} ${currency}`;
+  }
+}
+
+async function fetchSpeegoRows() {
+  const rows: Row[] = [];
+  for (let from = 0; from < MAX_ORDERS; from += DATABASE_PAGE_SIZE) {
+    const { data, error } = await supabase.from("speego").select(SPEEGO_SELECT)
+      .order("order_date", { ascending: false }).order("created_at", { ascending: false })
+      .range(from, from + DATABASE_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = (data as unknown as SpeegoRecord[]).map(fromSpeegoRecord);
+    rows.push(...page);
+    if (page.length < DATABASE_PAGE_SIZE) break;
+  }
+  return rows;
 }
 
 function formatOrderDate(value?: string) {
@@ -129,10 +168,28 @@ function normalizeSavedRow(value: unknown): Row | null {
     id: cleanString(record.id, 50) || undefined,
     code,
     orderId: cleanString(record.orderId, 32) || defaultOrderId(code),
+    sourceOrderId: cleanString(record.sourceOrderId, 160) || undefined,
+    sourceOrderCode: cleanString(record.sourceOrderCode, 160) || undefined,
     customerName: cleanString(record.customerName, 120) || undefined,
     phone: cleanString(record.phone, 40) || undefined,
+    email: cleanString(record.email, 200) || undefined,
+    address: cleanString(record.address, 500) || undefined,
+    city: cleanString(record.city, 160) || undefined,
+    state: cleanString(record.state, 160) || undefined,
+    postalCode: cleanString(record.postalCode, 40) || undefined,
+    country: cleanString(record.country, 120) || undefined,
+    marketingStaff: cleanString(record.marketingStaff, 160) || undefined,
+    salesPerson: cleanString(record.salesPerson, 160) || undefined,
+    customerServiceStaff: cleanString(record.customerServiceStaff, 160) || undefined,
+    deliveryPerson: cleanString(record.deliveryPerson, 160) || undefined,
+    shippingUnit: cleanString(record.shippingUnit, 160) || undefined,
     createdAt: cleanString(record.createdAt, 24) || undefined,
     amount: Number.isFinite(amount) && amount >= 0 ? amount : undefined,
+    unitPrice: numberValue(record.unitPrice),
+    currency: cleanString(record.currency, 3) || undefined,
+    exchangeRate: numberValue(record.exchangeRate),
+    totalAmountVnd: numberValue(record.totalAmountVnd),
+    sourceSyncedAt: cleanString(record.sourceSyncedAt, 50) || undefined,
     edd: cleanString(record.edd, 24) || undefined,
     collected: record.collected === true,
     status: cleanString(record.status, 120) || undefined,
@@ -144,15 +201,32 @@ function normalizeSavedRow(value: unknown): Row | null {
 }
 
 function fromSpeegoRecord(record: SpeegoRecord): Row {
-  const amount = Number(record.amount);
   return {
     id: record.id,
     code: record.tracking_code,
     orderId: record.order_id,
+    sourceOrderId: record.source_order_id || undefined,
+    sourceOrderCode: record.source_order_code || undefined,
     customerName: record.customer_name || undefined,
     phone: record.phone || undefined,
+    email: record.email || undefined,
+    address: record.address || undefined,
+    city: record.city || undefined,
+    state: record.state || undefined,
+    postalCode: record.postal_code || undefined,
+    country: record.country || undefined,
+    marketingStaff: record.marketing_staff || undefined,
+    salesPerson: record.sales_person || undefined,
+    customerServiceStaff: record.customer_service_staff || undefined,
+    deliveryPerson: record.delivery_person || undefined,
+    shippingUnit: record.shipping_unit || undefined,
     createdAt: record.order_date,
-    amount: record.amount != null && Number.isFinite(amount) ? amount : undefined,
+    amount: numberValue(record.amount),
+    unitPrice: numberValue(record.unit_price),
+    currency: record.currency || undefined,
+    exchangeRate: numberValue(record.exchange_rate),
+    totalAmountVnd: numberValue(record.total_amount_vnd),
+    sourceSyncedAt: record.source_synced_at || undefined,
     edd: record.edd || undefined,
     collected: record.collected,
     status: record.status || undefined,
@@ -168,10 +242,28 @@ function toSpeegoRecord(row: Row) {
     order_id: row.orderId || defaultOrderId(row.code),
     tracking_code: row.code,
     carrier: "UPS",
+    source_order_id: row.sourceOrderId || null,
+    source_order_code: row.sourceOrderCode || null,
     customer_name: row.customerName || null,
     phone: row.phone || null,
-    order_date: row.createdAt || today(),
+    email: row.email || null,
+    address: row.address || null,
+    city: row.city || null,
+    state: row.state || null,
+    postal_code: row.postalCode || null,
+    country: row.country || null,
+    marketing_staff: row.marketingStaff || null,
+    sales_person: row.salesPerson || null,
+    customer_service_staff: row.customerServiceStaff || null,
+    delivery_person: row.deliveryPerson || null,
+    shipping_unit: row.shippingUnit || null,
+    order_date: row.createdAt,
     amount: row.amount ?? null,
+    unit_price: row.unitPrice ?? null,
+    currency: row.currency || null,
+    exchange_rate: row.exchangeRate ?? null,
+    total_amount_vnd: row.totalAmountVnd ?? null,
+    source_synced_at: row.sourceSyncedAt || null,
     edd: row.edd || null,
     collected: row.collected === true,
     status: row.status || null,
@@ -247,16 +339,14 @@ function OrderStepper({ step }: { step: ShipmentStep }) {
 }
 
 export function UpsTracking({ userId }: { userId: string }) {
-  const [input, setInput] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [running, setRunning] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [activeCodes, setActiveCodes] = useState<string[]>([]);
   const [trackingProgress, setTrackingProgress] = useState({ completed: 0, total: 0, batch: 0, batches: 0 });
   const [notice, setNotice] = useState("");
   const [connection, setConnection] = useState("Chưa kiểm tra kết nối");
   const [database, setDatabase] = useState("Đang kết nối bảng speego");
-  const [createOpen, setCreateOpen] = useState(false);
-  const [draft, setDraft] = useState<OrderDraft>(emptyDraft);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [expanded, setExpanded] = useState("");
@@ -278,38 +368,18 @@ export function UpsTracking({ userId }: { userId: string }) {
         }
       } catch { setNotice("Không đọc được bảng đã lưu trên trình duyệt."); }
       void (async () => {
-        const select = "id,order_id,tracking_code,customer_name,phone,order_date,amount,edd,collected,status,raw_status,checked_at,error,history";
-        const databaseRows: Row[] = [];
-        for (let from = 0; from < MAX_ORDERS; from += DATABASE_PAGE_SIZE) {
-          const { data, error } = await supabase.from("speego").select(select)
-            .order("created_at", { ascending: false }).range(from, from + DATABASE_PAGE_SIZE - 1);
+        try {
+          const databaseRows = await fetchSpeegoRows();
           if (!mounted.current) return;
-          if (error) {
-            setDatabase("Chưa kết nối được bảng speego");
-            setNotice(`Supabase chưa sẵn sàng: ${error.message}. Dữ liệu tạm thời vẫn được giữ trên trình duyệt.`);
-            return;
-          }
-          const page = (data as unknown as SpeegoRecord[]).map(fromSpeegoRecord);
-          databaseRows.push(...page);
-          if (page.length < DATABASE_PAGE_SIZE) break;
-        }
-        const databaseCodes = new Set(databaseRows.map((row) => row.code));
-        const missing = cached.filter((row) => !databaseCodes.has(row.code));
-        let migrationFailed = false;
-        if (missing.length) {
-          const { error: migrationError } = await supabase.from("speego")
-            .upsert(missing.map(toSpeegoRecord), { onConflict: "tracking_code", ignoreDuplicates: true });
+          setRows(databaseRows);
+          try { localStorage.setItem(storageKey, JSON.stringify(databaseRows.slice(0, LOCAL_CACHE_LIMIT))); }
+          catch { setNotice("Đã đọc Supabase nhưng không lưu được bản sao trên trình duyệt."); }
+          setDatabase("Đồng bộ Supabase · bảng speego");
+        } catch (error) {
           if (!mounted.current) return;
-          if (migrationError) {
-            migrationFailed = true;
-            setNotice(`Không chuyển được ${missing.length} đơn cũ lên Supabase: ${migrationError.message}`);
-          }
+          setDatabase("Chưa kết nối được bảng speego");
+          setNotice(`Supabase chưa sẵn sàng: ${error instanceof Error ? error.message : "Lỗi không xác định"}. Dữ liệu tạm thời vẫn được giữ trên trình duyệt.`);
         }
-        const mergedRows = [...databaseRows, ...missing].slice(0, MAX_ORDERS);
-        setRows(mergedRows);
-        try { localStorage.setItem(storageKey, JSON.stringify(mergedRows.slice(0, LOCAL_CACHE_LIMIT))); }
-        catch { setNotice("Không lưu được bản sao dữ liệu Supabase trên trình duyệt."); }
-        setDatabase(migrationFailed ? "Có dữ liệu cũ chưa đồng bộ Supabase" : "Đồng bộ Supabase · bảng speego");
       })();
       void request("ping").then((response) => {
         if (mounted.current) setConnection(connectionLabel(response));
@@ -318,16 +388,11 @@ export function UpsTracking({ userId }: { userId: string }) {
     return () => { mounted.current = false; window.clearTimeout(timer); };
   }, [storageKey]);
 
-  useEffect(() => {
-    const openCreate = () => { setDraft(emptyDraft()); setCreateOpen(true); };
-    window.addEventListener("hahoa-ups-add-new", openCreate);
-    return () => window.removeEventListener("hahoa-ups-add-new", openCreate);
-  }, []);
-
   const filteredRows = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("vi");
     return rows.filter((row) => {
-      if (query && ![row.orderId, row.code, row.customerName, row.phone]
+      if (query && ![row.orderId, row.sourceOrderCode, row.code, row.customerName, row.phone,
+        row.email, row.address, row.salesPerson, row.deliveryPerson]
         .some((value) => value?.toLocaleLowerCase("vi").includes(query))) return false;
       if (statusFilter === "collected") return row.collected;
       if (statusFilter !== "all" && orderState(row).className !== statusFilter) return false;
@@ -348,11 +413,22 @@ export function UpsTracking({ userId }: { userId: string }) {
     if (!changed.length) return "";
     for (let offset = 0; offset < changed.length; offset += DATABASE_WRITE_BATCH_SIZE) {
       const batch = changed.slice(offset, offset + DATABASE_WRITE_BATCH_SIZE);
-      const { error } = await supabase.from("speego")
-        .upsert(batch.map(toSpeegoRecord), { onConflict: "tracking_code" });
+      const withId = batch.filter((row) => row.id);
+      const withoutId = batch.filter((row) => !row.id);
+      const { error } = withId.length
+        ? await supabase.from("speego").upsert(withId.map((row) => ({ id: row.id, ...toSpeegoRecord(row) })), { onConflict: "id" })
+        : { error: null };
       if (error) {
         setDatabase("Lỗi đồng bộ bảng speego");
         return error.message;
+      }
+      if (withoutId.length) {
+        const { error: legacyError } = await supabase.from("speego")
+          .upsert(withoutId.map(toSpeegoRecord), { onConflict: "tracking_code" });
+        if (legacyError) {
+          setDatabase("Lỗi đồng bộ bảng speego");
+          return legacyError.message;
+        }
       }
     }
     setDatabase("Đồng bộ Supabase · bảng speego");
@@ -372,73 +448,33 @@ export function UpsTracking({ userId }: { userId: string }) {
     return "";
   }
 
-  function inputCodes() {
-    const codes = [...new Set(input.toUpperCase().split(/[\s,;]+/).filter(Boolean))];
-    const invalid = codes.filter((code) => !/^[A-Z0-9]{7,34}$/.test(code));
-    if (invalid.length) {
-      setNotice(`Mã không hợp lệ: ${invalid.slice(0, 5).join(", ")}. Chỉ dán cột mã UPS, mỗi mã một dòng.`);
-      return null;
+  async function syncOrders() {
+    if (running || syncing) return;
+    setSyncing(true);
+    setNotice("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Phiên đăng nhập đã hết hạn.");
+      const response = await fetch("/api/speego/sync", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const result = await response.json() as SyncResponse;
+      if (!response.ok || !result.ok) throw new Error(result.error || "Đồng bộ đơn hàng thất bại.");
+      const databaseRows = await fetchSpeegoRows();
+      save(databaseRows);
+      setDatabase("Đồng bộ Supabase · bảng speego");
+      setNotice(`Đã đọc ${result.sourceRows || 0} đơn UPS có mã 1Z từ bảng orders: thêm ${result.inserted || 0}, cập nhật ${result.updated || 0}.`);
+    } catch (error) {
+      setDatabase("Lỗi đồng bộ bảng speego");
+      setNotice(error instanceof Error ? error.message : "Đồng bộ đơn hàng thất bại.");
+    } finally {
+      setSyncing(false);
     }
-    return codes;
-  }
-
-  function addCodes(markCollected = false) {
-    const codes = inputCodes();
-    if (!codes) return;
-    const selectedCodes = new Set(codes);
-    const existing = new Set(rows.map((row) => row.code));
-    const added = codes.filter((code) => !existing.has(code)).map((code) => ({
-      code,
-      orderId: defaultOrderId(code),
-      createdAt: today(),
-      collected: markCollected,
-    }));
-    if (rows.length + added.length > MAX_ORDERS) { setNotice(`Mỗi bảng tối đa ${MAX_ORDERS.toLocaleString("vi-VN")} đơn.`); return; }
-    const next = [...rows.map((row) => markCollected && selectedCodes.has(row.code) ? { ...row, collected: true } : row), ...added];
-    save(next);
-    const changed = markCollected ? next.filter((row) => selectedCodes.has(row.code)) : added;
-    void persistRows(changed).then((error) => {
-      if (error) setNotice(`Đã lưu trên trình duyệt nhưng chưa đồng bộ Supabase: ${error}`);
-    });
-    setInput("");
-    setNotice(markCollected
-      ? `Đã đánh dấu ${codes.length} đơn là đã thu tiền; thêm mới ${added.length} đơn.`
-      : `Đã thêm ${added.length} đơn; bỏ qua vận đơn trùng.`);
-  }
-
-  async function createOrder(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (running) { setNotice("Đợi lượt tra hiện tại hoàn tất rồi thêm đơn mới."); return; }
-    const code = draft.code.trim().toUpperCase();
-    const orderId = normalizeOrderId(draft.orderId);
-    if (!/^[A-Z0-9]{7,34}$/.test(code)) { setNotice("Mã vận đơn UPS không hợp lệ."); return; }
-    if (!/^#[A-Z0-9-]{2,31}$/.test(orderId)) { setNotice("Mã đơn hàng phải có ít nhất 2 ký tự chữ hoặc số."); return; }
-    if (rows.some((row) => row.code === code)) { setNotice(`Vận đơn ${code} đã có trong bảng.`); return; }
-    if (rows.some((row) => row.orderId?.toUpperCase() === orderId)) { setNotice(`Mã đơn ${orderId} đã có trong bảng.`); return; }
-    if (rows.length >= MAX_ORDERS) { setNotice(`Mỗi bảng tối đa ${MAX_ORDERS.toLocaleString("vi-VN")} đơn.`); return; }
-    const amount = Number(draft.amount);
-    const row: Row = {
-      code,
-      orderId,
-      customerName: draft.customerName.trim() || undefined,
-      phone: draft.phone.trim() || undefined,
-      createdAt: draft.createdAt || today(),
-      amount: Number.isFinite(amount) && amount >= 0 && draft.amount !== "" ? amount : undefined,
-      edd: draft.edd || undefined,
-      collected: draft.collected,
-      history: [],
-    };
-    save([row, ...rows]);
-    const syncError = await persistRows([row]);
-    setCreateOpen(false);
-    setDraft(emptyDraft());
-    setNotice(syncError
-      ? `Đã thêm đơn ${orderId} trên trình duyệt nhưng chưa đồng bộ Supabase: ${syncError}`
-      : `Đã thêm và lưu đơn ${orderId} vào bảng speego.`);
   }
 
   async function toggleCollected(code: string) {
-    if (running) return;
+    if (running || syncing) return;
     const next = rows.map((row) => row.code === code ? { ...row, collected: !row.collected } : row);
     save(next);
     const changed = next.find((row) => row.code === code);
@@ -514,10 +550,15 @@ export function UpsTracking({ userId }: { userId: string }) {
     const escape = (value: unknown) => `"${String(value ?? "").replace(/^[=+@-]/, "'$&").replaceAll('"', '""')}"`;
     const historyRows = rows.flatMap((row) => (row.history?.length ? row.history : [{
       status: row.status || "", rawStatus: row.rawStatus || "",
-    }]).map((event) => [row.orderId, row.code, row.customerName, row.phone, row.createdAt,
-      row.amount, row.edd, row.collected ? "Đã thu tiền" : "Chưa thu", event.status, event.rawStatus,
+    }]).map((event) => [row.sourceOrderCode || row.orderId, row.code, row.customerName, row.phone,
+      row.email, row.address, row.city, row.state, row.postalCode, row.country, row.marketingStaff,
+      row.salesPerson, row.customerServiceStaff, row.deliveryPerson, row.shippingUnit, row.createdAt,
+      row.unitPrice, row.currency, row.exchangeRate, row.totalAmountVnd, row.edd,
+      row.collected ? "Đã thu tiền" : "Chưa thu", event.status, event.rawStatus,
       event.date, event.time, event.location, event.details, row.checkedAt, row.error]));
-    const csv = [["Mã đơn", "Mã UPS", "Khách hàng", "SĐT", "Ngày tạo", "Số tiền USD", "EDD",
+    const csv = [["Mã đơn", "Mã UPS", "Khách hàng", "SĐT", "Email", "Địa chỉ", "Thành phố",
+      "Bang/Tỉnh", "Mã bưu chính", "Quốc gia", "NV marketing", "NV sale", "CSKH", "NV vận đơn",
+      "Đơn vị vận chuyển", "Ngày tạo", "Số tiền", "Tiền tệ", "Tỷ giá", "Tổng tiền VND", "EDD",
       "Thu tiền", "Trạng thái sự kiện", "Trạng thái gốc", "Ngày UPS", "Giờ UPS", "Địa điểm",
       "Chi tiết", "Lần tra thành công", "Lỗi lần tra mới nhất"], ...historyRows]
       .map((line) => line.map(escape).join(",")).join("\r\n");
@@ -547,37 +588,17 @@ export function UpsTracking({ userId }: { userId: string }) {
         <div className="ups-connection-state"><i className={connection.startsWith("Đã kết nối") && database.startsWith("Đồng bộ") ? "connected" : ""} /><div><strong>{connection}</strong><small>{database} · Hàng đợi tự chạy tối đa 20 tab UPS mỗi lô</small></div></div>
         <div className="ups-order-tool-actions">
           <a className="secondary-button" href={`/ups-tracking-extension.zip?v=${UPS_EXTENSION_VERSION}`} download>Tải tiện ích</a>
-          <button className="secondary-button" disabled={running} onClick={async () => {
+          <button className="secondary-button" disabled={running || syncing} onClick={async () => {
             const result = await request("ping");
             setConnection(connectionLabel(result));
           }}>Kiểm tra kết nối</button>
           <button className="secondary-button" disabled={!rows.length} onClick={exportCsv}>Xuất CSV</button>
-          <button className="primary-button" disabled={running || !pendingCount} onClick={() => void run()}>{running ? `Đang tra ${trackingProgress.completed}/${trackingProgress.total}` : `Tra ${pendingCount} đơn chưa tra`}</button>
+          <button className="secondary-button" disabled={running || syncing || !pendingCount} onClick={() => void run()}>{running ? `Đang tra ${trackingProgress.completed}/${trackingProgress.total}` : `Tra ${pendingCount} đơn chưa tra`}</button>
+          <button className="primary-button" disabled={running || syncing} onClick={() => void syncOrders()}>{syncing ? "Đang đồng bộ…" : "Đồng bộ đơn tháng 9"}</button>
         </div>
       </div>
 
-      <details className="ups-quick-add">
-        <summary>Nhập nhanh danh sách mã vận đơn UPS</summary>
-        <div className="ups-quick-add-body">
-          <label htmlFor="ups-codes">Dán cột mã UPS từ Excel hoặc nhập mỗi mã một dòng</label>
-          <textarea id="ups-codes" value={input} onChange={(event) => setInput(event.target.value)} disabled={running} placeholder="1Z064H260334937790" />
-          <div className="ups-actions">
-            <button className="secondary-button" disabled={running || !input.trim()} onClick={() => addCodes()}>Thêm vào bảng</button>
-            <button className="collected-button" disabled={running || !input.trim()} onClick={() => addCodes(true)}>Thêm &amp; đánh dấu đã thu tiền</button>
-            <button className="text-button" disabled={running || !rows.length} onClick={async () => {
-              if (window.confirm("Xóa toàn bộ bảng đơn hàng khỏi SpeeGo và Supabase?")) {
-                const codes = rows.map((row) => row.code);
-                save([]);
-                setSelected([]);
-                const error = await deleteRows(codes);
-                if (error) setNotice(`Đã xóa trên trình duyệt nhưng chưa xóa được ở Supabase: ${error}`);
-              }
-            }}>Xóa bảng</button>
-          </div>
-        </div>
-      </details>
-
-      <p className="ups-order-note">Mã đơn hàng và mã UPS là hai trường riêng. Trạng thái thu tiền được ghi nhận riêng; “Đã giao” không tự động có nghĩa là “Đã thu tiền”.</p>
+      <p className="ups-order-note">Nút đồng bộ chỉ đọc bảng <strong>orders</strong>, chỉ lấy đơn tháng 9 có mã vận đơn bắt đầu bằng <strong>1Z</strong>, rồi tự thêm hoặc cập nhật bảng <strong>speego</strong>.</p>
       <div role="status" aria-live="polite">{activeCodes.length > 0 && <p>Đang chạy lô {trackingProgress.batch}/{trackingProgress.batches}: {activeCodes.length} tab UPS; đã xong {trackingProgress.completed}/{trackingProgress.total} vận đơn…</p>}{notice && <p>{notice}</p>}</div>
     </div>
 
@@ -594,7 +615,7 @@ export function UpsTracking({ userId }: { userId: string }) {
       </select>
       {(search || statusFilter !== "all") && <button className="text-button" onClick={() => { setSearch(""); setStatusFilter("all"); }}>Đặt lại bộ lọc</button>}
       <span>{filteredRows.length.toLocaleString("vi-VN")} kết quả</span>
-      {selected.length > 0 && <button className="text-button danger-text" disabled={running} onClick={removeSelected}>Xóa {selected.length} đơn đã chọn</button>}
+      {selected.length > 0 && <button className="text-button danger-text" disabled={running || syncing} onClick={removeSelected}>Xóa {selected.length} đơn đã chọn</button>}
     </div>
 
     <div className="ups-orders-table-card">
@@ -603,7 +624,7 @@ export function UpsTracking({ userId }: { userId: string }) {
           <caption>{rows.length.toLocaleString("vi-VN")} tổng đơn · {rows.filter((row) => row.collected).length} đã thu tiền · {rows.filter((row) => row.error).length} mã lỗi</caption>
           <thead><tr>
             <th className="select-cell"><input type="checkbox" aria-label="Chọn tất cả đơn đang hiển thị" checked={allSelected} onChange={toggleAll} /></th>
-            <th>Mã đơn</th><th>Sự kiện Shipment</th><th>Khách hàng</th><th>Ngày tạo</th><th className="number-cell">Số tiền</th><th>Trạng thái đơn</th><th>Hãng / Vận đơn</th><th>EDD dự kiến</th><th aria-label="Thao tác" />
+            <th>Mã đơn</th><th>Sự kiện Shipment</th><th>Khách hàng</th><th>Nhân viên</th><th>Ngày tạo</th><th className="number-cell">Số tiền</th><th>Trạng thái đơn</th><th>Hãng / Vận đơn</th><th>EDD dự kiến</th><th aria-label="Thao tác" />
           </tr></thead>
           <tbody>{filteredRows.map((row) => {
             const state = orderState(row);
@@ -611,20 +632,27 @@ export function UpsTracking({ userId }: { userId: string }) {
             return <Fragment key={row.code}>
               <tr className={selected.includes(row.code) ? "selected" : ""}>
                 <td className="select-cell"><input type="checkbox" aria-label={`Chọn đơn ${row.orderId}`} checked={selected.includes(row.code)} onChange={() => setSelected((currentIds) => currentIds.includes(row.code) ? currentIds.filter((code) => code !== row.code) : [...currentIds, row.code])} /></td>
-                <td><button className="order-id-button" onClick={() => setExpanded(isExpanded ? "" : row.code)}>{row.orderId || defaultOrderId(row.code)}</button></td>
+                <td><button className="order-id-button" onClick={() => setExpanded(isExpanded ? "" : row.code)}>{row.sourceOrderCode || row.orderId || defaultOrderId(row.code)}</button></td>
                 <td><OrderStepper step={shipmentStep(row)} /></td>
-                <td><div className="order-customer"><strong>{row.customerName || "Chưa nhập khách hàng"}</strong>{row.phone && <small>{row.phone}</small>}</div></td>
+                <td><div className="order-customer"><strong>{row.customerName || "Chưa có tên khách"}</strong>{row.phone && <small>{row.phone}</small>}{row.email && <small>{row.email}</small>}</div></td>
+                <td><div className="order-customer"><strong>{row.salesPerson || "Chưa có NV sale"}</strong>{row.deliveryPerson && <small>Vận đơn: {row.deliveryPerson}</small>}</div></td>
                 <td className="order-date">{formatOrderDate(row.createdAt)}</td>
-                <td className="number-cell order-amount"><strong>{row.amount == null ? "—" : usd.format(row.amount)}</strong>{row.collected && <button disabled={running} onClick={() => toggleCollected(row.code)}>● Đã thu tiền</button>}</td>
+                <td className="number-cell order-amount"><strong>{formatMoney(row.unitPrice ?? row.amount, row.currency)}</strong>{row.totalAmountVnd != null && <small>{formatMoney(row.totalAmountVnd, "VND")}</small>}{row.collected && <button disabled={running || syncing} onClick={() => toggleCollected(row.code)}>● Đã thu tiền</button>}</td>
                 <td><span className={`order-status ${state.className}`}>● {activeCodes.includes(row.code) ? "Đang tra" : state.label}</span></td>
                 <td><div className="order-carrier"><b>UPS</b><a href={`https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(row.code)}`} target="_blank" rel="noreferrer">{row.code}</a></div></td>
                 <td className="order-date">{row.edd ? formatOrderDate(row.edd) : "Chưa có"}</td>
                 <td><button className="order-more" aria-label={`Xem chi tiết đơn ${row.orderId}`} onClick={() => setExpanded(isExpanded ? "" : row.code)}><MoreVertical size={17} /></button></td>
               </tr>
-              {isExpanded && <tr className="ups-order-detail-row"><td colSpan={10}>
+              {isExpanded && <tr className="ups-order-detail-row"><td colSpan={11}>
                 <div className="ups-order-expanded">
                   <div className="ups-order-detail-meta">
-                    <div><span>Trạng thái thu tiền</span><button className={`collection-toggle${row.collected ? " is-collected" : ""}`} disabled={running} onClick={() => toggleCollected(row.code)}>{row.collected ? "Đã thu tiền" : "Chưa thu"}</button></div>
+                    <div><span>Địa chỉ khách hàng</span><strong>{[row.address, row.city, row.state, row.postalCode, row.country].filter(Boolean).join(", ") || "—"}</strong></div>
+                    <div><span>Liên hệ</span><strong>{[row.phone, row.email].filter(Boolean).join(" · ") || "—"}</strong></div>
+                    <div><span>Nhân viên</span><strong>{[row.marketingStaff && `Marketing: ${row.marketingStaff}`, row.salesPerson && `Sale: ${row.salesPerson}`, row.customerServiceStaff && `CSKH: ${row.customerServiceStaff}`, row.deliveryPerson && `Vận đơn: ${row.deliveryPerson}`].filter(Boolean).join(" · ") || "—"}</strong></div>
+                    <div><span>Giá / tiền tệ</span><strong>{formatMoney(row.unitPrice ?? row.amount, row.currency)}{row.exchangeRate != null ? ` · Tỷ giá ${row.exchangeRate.toLocaleString("vi-VN")}` : ""}</strong></div>
+                    <div><span>Tổng tiền quy đổi</span><strong>{formatMoney(row.totalAmountVnd, "VND")}</strong></div>
+                    <div><span>Đơn vị vận chuyển</span><strong>{row.shippingUnit || "—"}</strong></div>
+                    <div><span>Trạng thái thu tiền</span><button className={`collection-toggle${row.collected ? " is-collected" : ""}`} disabled={running || syncing} onClick={() => toggleCollected(row.code)}>{row.collected ? "Đã thu tiền" : "Chưa thu"}</button></div>
                     <div><span>Lần tra thành công</span><strong>{row.checkedAt && Number.isFinite(Date.parse(row.checkedAt)) ? new Date(row.checkedAt).toLocaleString("vi-VN") : "—"}</strong></div>
                     <div><span>Lần tra mới nhất</span><strong>{row.error || (row.status ? "Thành công" : "Chưa tra")}</strong></div>
                   </div>
@@ -640,28 +668,9 @@ export function UpsTracking({ userId }: { userId: string }) {
                 </div>
               </td></tr>}
             </Fragment>;
-          })}{!filteredRows.length && <tr><td colSpan={10} className="ups-orders-empty">Không tìm thấy đơn hàng phù hợp.</td></tr>}</tbody>
+          })}{!filteredRows.length && <tr><td colSpan={11} className="ups-orders-empty">Không tìm thấy đơn hàng phù hợp.</td></tr>}</tbody>
         </table>
       </div>
     </div>
-
-    {createOpen && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setCreateOpen(false)}>
-      <section className="modal-card ups-order-modal" role="dialog" aria-modal="true" aria-labelledby="ups-order-modal-title">
-        <div className="modal-heading"><div><p className="eyebrow">ĐƠN HÀNG UPS</p><h2 id="ups-order-modal-title">Thêm đơn mới</h2><p>Nhập mã đơn riêng và mã vận đơn UPS; đơn sẽ xuất hiện ngay trong bảng.</p></div><button className="icon-button" onClick={() => setCreateOpen(false)} aria-label="Đóng"><X size={19} /></button></div>
-        <form onSubmit={createOrder}>
-          <div className="form-grid ups-order-form-grid">
-            <label><span>Mã đơn hàng *</span><input value={draft.orderId} onChange={(event) => setDraft({ ...draft, orderId: event.target.value })} placeholder="#C537" autoFocus required /></label>
-            <label><span>Mã vận đơn UPS *</span><input value={draft.code} onChange={(event) => setDraft({ ...draft, code: event.target.value.toUpperCase() })} placeholder="1Z064H260334937790" required /></label>
-            <label><span>Khách hàng</span><input value={draft.customerName} onChange={(event) => setDraft({ ...draft, customerName: event.target.value })} placeholder="Tên khách hàng" /></label>
-            <label><span>Số điện thoại</span><input value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} placeholder="Số điện thoại" /></label>
-            <label><span>Số tiền (USD)</span><input type="number" min="0" step="0.01" value={draft.amount} onChange={(event) => setDraft({ ...draft, amount: event.target.value })} placeholder="100.00" /></label>
-            <label><span>Ngày tạo</span><input type="date" value={draft.createdAt} onChange={(event) => setDraft({ ...draft, createdAt: event.target.value })} /></label>
-            <label><span>EDD dự kiến</span><input type="date" value={draft.edd} onChange={(event) => setDraft({ ...draft, edd: event.target.value })} /></label>
-            <label className="span-2 ups-order-paid-check"><input type="checkbox" checked={draft.collected} onChange={(event) => setDraft({ ...draft, collected: event.target.checked })} /><span>Đơn này đã thu tiền</span></label>
-          </div>
-          <div className="modal-actions"><button className="secondary-button" type="button" onClick={() => setCreateOpen(false)}>Huỷ</button><button className="primary-button" type="submit">Thêm đơn vào bảng</button></div>
-        </form>
-      </section>
-    </div>}
   </section>;
 }
