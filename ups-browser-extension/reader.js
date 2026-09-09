@@ -1,13 +1,16 @@
 /* Runs in the isolated extension world. Never infer status from the full milestone list. */
 function readUpsDocument(doc, code, diagnose = false) {
   if (!doc) {
-    if (location.origin !== 'https://www.ups.com'
-      || new URL(location.href).searchParams.get('tracknum')?.toUpperCase() !== code) {
+    const currentUrl = new URL(location.href);
+    const currentCode = currentUrl.searchParams.get('tracknum')?.toUpperCase();
+    if (!['https://www.ups.com', 'https://ups.com'].includes(currentUrl.origin)
+      || !currentUrl.pathname.startsWith('/track')
+      || (currentCode && currentCode !== code)) {
       return { ok: false, fatal: true, error: 'Tab UPS đã chuyển trang hoặc không khớp mã yêu cầu.' };
     }
   }
   doc = doc || document;
-  const pending = (reason) => diagnose ? { pending: true, reason, readerVersion: '0.1.4' } : null;
+  const pending = (reason) => diagnose ? { pending: true, reason, readerVersion: '0.1.5' } : null;
   const visible = (node) => node && node.getClientRects().length > 0;
   const body = doc.body?.innerText || '';
   if (/access denied|verify you are human|verify you're human|unusual traffic|robot verification|security check|temporarily blocked/i.test(body)) {

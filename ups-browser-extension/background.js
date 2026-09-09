@@ -3,6 +3,65 @@ importScripts('reader.js');
 let busy = false;
 let lastStarted = 0;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const UPS_ORIGINS = ['https://www.ups.com', 'https://ups.com'];
+const UPS_TAB_PATTERNS = ['https://www.ups.com/*', 'https://ups.com/*'];
+
+function isPermissionError(message) {
+  return /cannot access contents|missing host permission|extensions gallery cannot be scripted/i.test(message);
+}
+
+function isUpsTrackingUrl(url, code) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return UPS_ORIGINS.includes(parsed.origin) && parsed.searchParams.get('tracknum')?.toUpperCase() === code;
+  } catch { return false; }
+}
+
+function hasDifferentTrackingCode(url, code) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    const tracknum = parsed.searchParams.get('tracknum')?.toUpperCase();
+    return UPS_ORIGINS.includes(parsed.origin) && Boolean(tracknum) && tracknum !== code;
+  } catch { return false; }
+}
+
+async function queryUpsTabs() {
+  const groups = await Promise.all(UPS_TAB_PATTERNS.map((url) => chrome.tabs.query({ url }).catch(() => [])));
+  const seen = new Set();
+  return groups.flat().filter((tab) => {
+    if (!Number.isInteger(tab?.id) || seen.has(tab.id)) return false;
+    seen.add(tab.id);
+    return true;
+  });
+}
+
+function contentRead(tabId, code) {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, { type: 'HAHOA_UPS_CONTENT', action: 'read', code }, (result) => {
+      const error = chrome.runtime.lastError;
+      resolve(error ? { error: String(error.message || error) } : { result });
+    });
+  });
+}
+
+async function injectedRead(tabId, code) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId }, injectImmediately: true, func: globalThis.readUpsDocument, args: [null, code, true],
+  });
+  return results[0]?.result;
+}
+
+async function readTab(tabId, code) {
+  const content = await contentRead(tabId, code);
+  if (content.result) return { result: content.result, method: 'content' };
+  try {
+    return { result: await injectedRead(tabId, code), method: 'inject', bridgeError: content.error };
+  } catch (error) {
+    return { error: String(error?.message || error).slice(0, 220), method: 'inject', bridgeError: content.error };
+  }
+}
 
 function allowedSender(sender) {
   try {
@@ -24,46 +83,55 @@ async function track(code) {
   try {
     await pause(Math.max(0, 3000 - (Date.now() - lastStarted)));
     lastStarted = Date.now();
-    const openTabs = await chrome.tabs.query({ url: 'https://www.ups.com/*' });
-    const existing = openTabs.find((item) => {
-      try { return new URL(item.url).searchParams.get('tracknum')?.toUpperCase() === code; }
-      catch { return false; }
-    });
+    const openTabs = await queryUpsTabs();
+    let initialResult;
+    let existing = openTabs.find((item) => isUpsTrackingUrl(item.url, code));
+    if (!existing) {
+      for (const item of openTabs) {
+        if (hasDifferentTrackingCode(item.url, code)) continue;
+        const read = await readTab(item.id, code);
+        attempts++;
+        lastReadError = read.error || '';
+        if (read.result?.ok) return read.result;
+        if (read.result?.fatal && /không khớp mã yêu cầu/i.test(read.result.error || '')) continue;
+        if (read.result?.fatal) return read.result;
+        if (read.result?.pending && read.result.reason !== 'CODE_NOT_VISIBLE') {
+          existing = item;
+          initialResult = read.result;
+          break;
+        }
+      }
+    }
     const tab = existing || await chrome.tabs.create({ url: `https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(code)}`, active: false });
     ownsTab = !existing;
     tabId = tab.id;
     const deadline = Date.now() + 45000;
     while (Date.now() < deadline) {
       await pause(1200);
-      // Extension API calls keep this bounded request alive in MV3.
       const current = await chrome.tabs.get(tabId);
       lastStage = `tab=${tabId} browser=${current.status}`;
       // A visible result can be ready while third-party resources keep the tab loading.
       if (current.url === 'about:blank') { lastStage += ' WAIT_BLANK'; continue; }
       // Chrome may redact Tab.url. Validate location inside the permitted page instead.
       const url = current.url ? new URL(current.url) : null;
-      if (url && (url.origin !== 'https://www.ups.com' || url.searchParams.get('tracknum')?.toUpperCase() !== code)) {
+      const currentCode = url?.searchParams.get('tracknum')?.toUpperCase();
+      if (url && (!UPS_ORIGINS.includes(url.origin) || !url.pathname.startsWith('/track') || (currentCode && currentCode !== code))) {
         keepTab = true;
         return { ok: false, fatal: true, error: 'UPS chuyển sang trang khác. Kiểm tra tab UPS rồi thử lại.' };
       }
-      let results;
-      try {
-        // One injection: navigation between injecting a file and invoking it cannot erase the reader.
-        results = await chrome.scripting.executeScript({
-          target: { tabId }, injectImmediately: true, func: globalThis.readUpsDocument, args: [null, code, true],
-        });
-        attempts++;
-        lastReadError = '';
-      } catch (error) {
-        lastReadError = String(error?.message || error).slice(0, 220);
-        if (/cannot access contents|missing host permission|extensions gallery cannot be scripted/i.test(lastReadError)) {
+      const read = initialResult ? { result: initialResult, method: 'content' } : await readTab(tabId, code);
+      initialResult = null;
+      attempts++;
+      lastReadError = read.error || '';
+      if (read.error) {
+        if (isPermissionError(read.error)) {
           keepTab = true;
-          return { ok: false, fatal: true, error: `Chưa được quyền đọc UPS. Trong quản lý tiện ích, cho phép truy cập www.ups.com rồi thử lại. Chi tiết: ${lastReadError}` };
+          return { ok: false, fatal: true, error: `Chưa được quyền đọc UPS. Trong quản lý tiện ích, cho phép truy cập www.ups.com rồi thử lại. Chi tiết: ${read.error}` };
         }
         // UPS can briefly navigate through an error/intermediate document before rendering.
         continue;
       }
-      const result = results[0]?.result;
+      const result = read.result;
       if (result?.pending) { lastStage += ` reader=${result.readerVersion} ${result.reason}`; continue; }
       if (!result) lastStage += ' READER_EMPTY';
       if (result) {
@@ -72,7 +140,7 @@ async function track(code) {
       }
     }
     keepTab = true;
-    return { ok: false, fatal: true, error: `Chưa đọc được trạng thái sau 45 giây. Chẩn đoán 0.1.4: ${lastStage}; reads=${attempts}` + (lastReadError ? `; ${lastReadError}` : '') };
+    return { ok: false, fatal: true, error: `Chưa đọc được trạng thái sau 45 giây. Chẩn đoán 0.1.5: ${lastStage}; reads=${attempts}` + (lastReadError ? `; ${lastReadError}` : '') };
   } catch (error) {
     keepTab = true;
     console.warn('UPS tracking failed:', error instanceof Error ? error.message : String(error));

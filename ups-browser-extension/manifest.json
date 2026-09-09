@@ -1,15 +1,22 @@
 {
   "manifest_version": 3,
   "name": "Hà Hoà UPS Tracking",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "minimum_chrome_version": "110",
   "description": "Đọc trạng thái vận đơn từ tab UPS khi người dùng yêu cầu trên Hà Hoà.",
   "permissions": ["scripting", "tabs"],
-  "host_permissions": ["https://www.ups.com/*"],
+  "host_permissions": ["https://www.ups.com/*", "https://ups.com/*"],
   "background": { "service_worker": "background.js" },
-  "content_scripts": [{
-    "matches": ["https://congno-ha-hoa.vercel.app/*", "https://cong-no-ha-hoa-jade.vercel.app/*", "http://localhost/*", "http://127.0.0.1/*"],
-    "js": ["web-bridge.js"],
-    "run_at": "document_start"
-  }]
+  "content_scripts": [
+    {
+      "matches": ["https://congno-ha-hoa.vercel.app/*", "https://cong-no-ha-hoa-jade.vercel.app/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["web-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.ups.com/*", "https://ups.com/*"],
+      "js": ["reader.js", "ups-content.js"],
+      "run_at": "document_idle"
+    }
+  ]
 }

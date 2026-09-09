@@ -1,4 +1,10 @@
-# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.4
+# Hà Hoà UPS Tracking — bản thử nghiệm 0.1.5
+
+## Bản 0.1.5
+
+Nếu tab UPS đã hiển thị `Delivered` nhưng web Hà Hoà vẫn chạy mãi, bản này đọc qua content script cài trực tiếp trên tab UPS trước, rồi mới dùng `scripting.executeScript` làm dự phòng. Bổ sung quyền cho cả `ups.com` và `www.ups.com`, đồng thời link tải trên web có tham số phiên bản để tránh tải nhầm ZIP cũ từ cache.
+
+Sau cập nhật ZIP, mở quản lý tiện ích và bấm Tải lại. Nếu Chrome hỏi quyền mới, xác nhận quyền UPS. Tải lại tab UPS và tab Hà Hoà; dòng kết nối phải hiện **Đã kết nối UPS 0.1.5**.
 
 ## Bản 0.1.4
 

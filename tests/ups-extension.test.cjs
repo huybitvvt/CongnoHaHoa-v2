@@ -45,19 +45,41 @@ test('semantic current step is used and unknown status is not guessed', () => {
   assert.equal(reader()(doc(code, { '#st_App_PkgSts': [node('Something new')] }), code), null);
 });
 
-function background({ result = { ok: true, code, status: 'Đã giao hàng' }, redirected = false, existing = false, failReads = 0, tabStatus = 'complete', redactUrl = false, permissionDenied = false } = {}) {
+function background({
+  result = { ok: true, code, status: 'Đã giao hàng' },
+  redirected = false,
+  existing = false,
+  failReads = 0,
+  tabStatus = 'complete',
+  redactUrl = false,
+  redactQueryUrl = false,
+  permissionDenied = false,
+  contentAvailable = false,
+  contentResult = result,
+} = {}) {
   let listener;
   let release;
   const removed = [];
   let created = 0;
   let reads = 0;
+  let contentReads = 0;
   const chrome = {
     runtime: { onMessage: { addListener: (fn) => { listener = fn; } }, getManifest: () => ({ version: '0.1.0' }) },
     tabs: {
-      query: async () => existing ? [{ id: 123, url: `https://www.ups.com/track?tracknum=${code}&requester=ST/trackdetails` }] : [],
+      query: async () => existing ? [{ id: 123, url: redactQueryUrl ? undefined : `https://www.ups.com/track?tracknum=${code}&requester=ST/trackdetails` }] : [],
       create: () => { created++; return new Promise((resolve) => { release = () => resolve({ id: 123 }); }); },
       get: async () => ({ status: tabStatus, url: redactUrl ? undefined : redirected ? 'https://www.ups.com/login' : `https://www.ups.com/track?loc=en_US&tracknum=${code}` }),
       remove: async (id) => removed.push(id),
+      sendMessage: (_id, _message, callback) => {
+        contentReads++;
+        if (contentAvailable) {
+          callback(contentResult);
+          return;
+        }
+        chrome.runtime.lastError = { message: 'Could not establish connection. Receiving end does not exist.' };
+        callback();
+        delete chrome.runtime.lastError;
+      },
     },
     scripting: { executeScript: async (options) => {
       assert.equal(options.injectImmediately, true);
@@ -71,7 +93,7 @@ function background({ result = { ok: true, code, status: 'Đã giao hàng' }, re
   const sender = { url: 'https://cong-no-ha-hoa-jade.vercel.app/tracking-ups', frameId: 0, tab: { id: 9 } };
   return {
     send: (message, from = sender) => new Promise((resolve) => listener({ type: 'HAHOA_UPS', ...message }, from, resolve)),
-    release: async () => { await new Promise(setImmediate); release(); }, removed, count: () => created, reads: () => reads,
+    release: async () => { await new Promise(setImmediate); release(); }, removed, count: () => created, reads: () => reads, contentReads: () => contentReads,
   };
 }
 test('rejects untrusted origins, iframe messages and invalid codes before opening tabs', async () => {
@@ -121,6 +143,14 @@ test('redacted Tab.url does not prevent reading a permitted UPS document', async
   const bg = background({ existing: true, redactUrl: true });
   assert.equal((await bg.send({ action: 'track', code })).ok, true);
   assert.equal(bg.reads(), 1);
+});
+
+test('reads an already open UPS tab through its content script when tab metadata is redacted', async () => {
+  const bg = background({ existing: true, redactQueryUrl: true, contentAvailable: true });
+  assert.equal((await bg.send({ action: 'track', code })).ok, true);
+  assert.equal(bg.count(), 0);
+  assert.equal(bg.contentReads(), 1);
+  assert.equal(bg.reads(), 0);
 });
 
 test('withheld UPS permission reports failure immediately instead of WAIT_URL', async () => {

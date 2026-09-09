@@ -10,6 +10,7 @@ type Row = {
   error?: string;
 };
 type Response = Partial<Row> & { ok: boolean; fatal?: boolean; version?: string };
+const UPS_EXTENSION_VERSION = "0.1.5";
 
 function request(action: "ping" | "track", code?: string): Promise<Response> {
   return new Promise((resolve) => {
@@ -132,7 +133,7 @@ export function UpsTracking({ userId }: { userId: string }) {
     <div className="ups-card">
       <div className="ups-actions">
         <strong>{connection}</strong>
-        <a className="secondary-button" href="/ups-tracking-extension.zip" download>Tải tiện ích UPS</a>
+        <a className="secondary-button" href={`/ups-tracking-extension.zip?v=${UPS_EXTENSION_VERSION}`} download>Tải tiện ích UPS</a>
         <button className="secondary-button" disabled={running} onClick={async () => {
           const result = await request("ping");
           setConnection(result.ok ? `Đã kết nối UPS ${result.version}` : result.error || "Chưa kết nối");
