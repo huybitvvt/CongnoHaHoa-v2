@@ -164,8 +164,12 @@ export function DashboardCharts({
         {metrics.map(({ label, value, icon: Icon, tone, detail }) => (
           <article className={`dashboard-metric tone-${tone}`} key={label}>
             <div className="dashboard-metric-heading"><span>{label}</span><Icon size={18} aria-hidden="true" /></div>
-            <strong className="dashboard-metric-value">{value}</strong>
-            {detail && <small>{detail}</small>}
+            <div className="dashboard-metric-body">
+              <strong className="dashboard-metric-value">{value}</strong>
+              <small className={`dashboard-metric-detail ${detail ? "" : "empty"}`}>
+                {detail || "\u00A0"}
+              </small>
+            </div>
           </article>
         ))}
       </div>
