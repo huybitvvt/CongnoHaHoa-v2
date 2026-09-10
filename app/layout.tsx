@@ -5,8 +5,8 @@ const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
-  title: "Quản lý công nợ | SpeeGo Logistics",
-  description: "Hệ thống quản lý công nợ và vận hành phân phối SpeeGo Logistics",
+  title: "SpeedGo Logistics | OMS vận hành",
+  description: "Hệ thống quản trị đơn hàng, kho, fulfillment và tài chính SpeedGo Logistics",
   icons: {
     icon: "/speego-logistics.jpg",
     shortcut: "/speego-logistics.jpg",

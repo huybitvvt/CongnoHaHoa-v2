@@ -1,7 +1,33 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Check, FileText, House, MoreVertical, Package, Search, Truck } from "lucide-react";
+import { StaffIdentity } from "@/components/StaffIdentity";
+
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Check,
+  ChevronDown,
+  Clock3,
+  Copy,
+  CreditCard,
+  Download,
+  ExternalLink,
+  Eye,
+  FileText,
+  Grid,
+  House,
+  MapPin,
+  MoreVertical,
+  Package,
+  PackageCheck,
+  Plus,
+  RefreshCw,
+  ScanLine,
+  Search,
+  TriangleAlert,
+  Truck,
+  Upload,
+  X,
+} from "lucide-react";
 import { UpsRunner } from "@/components/UpsRunner";
 import { supabase } from "@/lib/supabase";
 
@@ -52,6 +78,25 @@ type Row = {
 type Response = Partial<Row> & { ok: boolean; fatal?: boolean; version?: string };
 type SyncResponse = { ok: boolean; error?: string; sourceRows?: number; supabaseRows?: number; speedGoRows?: number; speedGoTrackingRows?: number; inserted?: number; updated?: number; from?: string; before?: string };
 type ShipmentStep = 1 | 2 | 3 | 4 | 5;
+type TrackingDetailTab = "timeline" | "time" | "status";
+type ManualDraft = {
+  orderId: string;
+  trackingCode: string;
+  customerName: string;
+  phone: string;
+  email: string;
+  address: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  salesPerson: string;
+  deliveryPerson: string;
+  amount: string;
+  currency: string;
+  exchangeRate: string;
+  orderDate: string;
+};
 
 type SpeegoRecord = {
   id: string;
@@ -95,6 +140,27 @@ const MAX_ORDERS = 5000;
 const LOCAL_CACHE_LIMIT = 100;
 const DATABASE_WRITE_BATCH_SIZE = 100;
 const SPEEGO_SELECT = "id,source_order_id,source_order_code,order_id,tracking_code,customer_name,phone,email,address,city,state,postal_code,country,marketing_staff,sales_person,customer_service_staff,delivery_person,shipping_unit,order_date,amount,unit_price,currency,exchange_rate,total_amount_vnd,source_synced_at,edd,collected,status,raw_status,checked_at,error,history";
+
+function createManualDraft(): ManualDraft {
+  return {
+    orderId: "",
+    trackingCode: "",
+    customerName: "",
+    phone: "",
+    email: "",
+    address: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "US",
+    salesPerson: "",
+    deliveryPerson: "",
+    amount: "",
+    currency: "USD",
+    exchangeRate: "0",
+    orderDate: new Date().toISOString().slice(0, 10),
+  };
+}
 
 function cleanString(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
@@ -303,6 +369,86 @@ function OrderStepper({ step }: { step: ShipmentStep }) {
   </div>;
 }
 
+
+function shortOrderCode(row: Row): string {
+  if (row.sourceOrderCode?.startsWith("#SG")) return row.sourceOrderCode;
+  if (row.orderId?.startsWith("#SG")) return row.orderId;
+  const base = row.sourceOrderCode || row.orderId || row.code;
+  const clean = base.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  if (clean.length > 5) {
+    return `#${clean.slice(-4)}`;
+  }
+  return `#${clean || "2A94"}`;
+}
+
+function formatSpeegoDate(dateStr?: string | null): string {
+  if (!dateStr) return "9 thg 9, 2026";
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return "9 thg 9, 2026";
+  return `${date.getDate()} thg ${date.getMonth() + 1}, ${date.getFullYear()}`;
+}
+
+function formatSpeegoMoney(amount?: number | null, currency = "US$"): string {
+  const val = Number(amount || 0);
+  const formatted = val.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${formatted} ${currency === "USD" || !currency ? "US$" : currency}`;
+}
+
+function OrderStepperV2({ row }: { row: Row }) {
+  const step = shipmentStep(row);
+  const isFailed = Boolean(row.error) || /fail|undeliver|thất bại|lỗi/i.test(row.status || "");
+  const isDelivered = step >= 5 || /deliver|đã giao/i.test(row.status || "");
+
+  return (
+    <div className="shipment-stepper-v2" title={row.status || "Chưa có thông tin"}>
+      {/* Node 1: Warehouse / Tạo đơn (cyan/blue) */}
+      <span className="stepper-node-v2 node-blue" title="Tạo đơn / Kho">
+        <House size={11} />
+      </span>
+      <span className="stepper-line-v2 active" />
+
+      {/* Node 2: Payment / Label (teal/cyan) */}
+      <span className="stepper-node-v2 node-teal" title="Xử lý / Nhãn / Thanh toán">
+        <CreditCard size={11} />
+      </span>
+      <span className={`stepper-line-v2 ${step >= 2 ? "active" : ""}`} />
+
+      {/* Node 3: Origin Facility / Pin (orange) */}
+      <span className={`stepper-node-v2 ${step >= 3 ? "node-orange" : "node-muted"}`} title="Xuất kho / Trạm gốc">
+        <MapPin size={11} />
+      </span>
+      <span className={`stepper-line-v2 ${step >= 3 ? "active" : ""}`} />
+
+      {/* Node 4: In Transit / Truck (blue) */}
+      <span className={`stepper-node-v2 ${step >= 4 ? "node-blue" : "node-muted"}`} title="Đang vận chuyển">
+        <Truck size={11} />
+      </span>
+      <span className={`stepper-line-v2 ${step >= 4 ? "active" : ""}`} />
+
+      {/* Node 5: Out for delivery / Destination (orange) */}
+      <span className={`stepper-node-v2 ${step >= 4 ? "node-orange" : "node-muted"}`} title="Trạm phát">
+        <Package size={11} />
+      </span>
+      <span className={`stepper-line-v2 ${step >= 5 || isFailed ? "active" : ""}`} />
+
+      {/* Node 6: Check (green) or Alert (red) */}
+      {isFailed ? (
+        <span className="stepper-node-v2 node-red" title="Giao thất bại / Cần xử lý">
+          <TriangleAlert size={11} />
+        </span>
+      ) : isDelivered ? (
+        <span className="stepper-node-v2 node-green" title="Đã giao thành công">
+          <Check size={11} />
+        </span>
+      ) : (
+        <span className="stepper-node-v2 node-muted" title="Chờ giao">
+          <Check size={11} />
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function UpsTracking({ userId }: { userId: string }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [running, setRunning] = useState(false);
@@ -315,11 +461,31 @@ export function UpsTracking({ userId }: { userId: string }) {
   const [database, setDatabase] = useState("Đang kết nối bảng speego");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [expanded, setExpanded] = useState("");
+  const [detailCode, setDetailCode] = useState("");
+  const [detailTab, setDetailTab] = useState<TrackingDetailTab>("timeline");
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualDraft, setManualDraft] = useState<ManualDraft>(() => createManualDraft());
+  const [manualSaving, setManualSaving] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
+  const [periodFilter, setPeriodFilter] = useState("all");
+  const [eddFilter, setEddFilter] = useState("all");
+  const [staffFilter, setStaffFilter] = useState("all");
+  const [groupFilter, setGroupFilter] = useState("all");
+  const [carrierFilter, setCarrierFilter] = useState("all");
+  const [showCarrierOnly, setShowCarrierOnly] = useState(false);
+
   const mounted = useRef(true);
   const locked = useRef(false);
   const storageKey = `hahoa-ups-v1:${userId}`;
+
+  useEffect(() => {
+    const openManualOrder = () => {
+      setManualDraft(createManualDraft());
+      setManualOpen(true);
+    };
+    window.addEventListener("hahoa-ups-add-new", openManualOrder);
+    return () => window.removeEventListener("hahoa-ups-add-new", openManualOrder);
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
@@ -367,20 +533,69 @@ export function UpsTracking({ userId }: { userId: string }) {
     return () => { stopped = true; clearInterval(timer); };
   }, [running, syncing]);
 
+  const staffList = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((r) => { if (r.salesPerson) set.add(r.salesPerson); });
+    if (!set.size) { set.add("Trúc Kiều"); set.add("Ngọc Dân"); }
+    return Array.from(set);
+  }, [rows]);
+
+  const speegoTabs = useMemo(() => [
+    { key: "all", label: "Tất cả", count: rows.length },
+    { key: "new", label: "Đơn mới tạo", count: rows.filter((r) => !r.checkedAt || orderState(r).className === "new").length },
+    { key: "reprocess", label: "Đơn xử lý lại", count: rows.filter((r) => Boolean(r.error && !r.collected)).length },
+    { key: "action_needed", label: "Cần xử lý", count: rows.filter((r) => Boolean(r.error)).length },
+    { key: "fulfillment_waiting", label: "Chờ fulfillment", count: 0 },
+    { key: "waiting", label: "Đang chờ", count: rows.filter((r) => ["received", "sent"].includes(orderState(r).className)).length },
+    { key: "shipping", label: "Đang giao", count: rows.filter((r) => orderState(r).className === "shipping").length },
+    { key: "failed", label: "Giao thất bại", count: rows.filter((r) => Boolean(r.error) || /fail|undeliver|thất bại|lỗi/i.test(r.status || "")).length },
+  ], [rows]);
+
   const filteredRows = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("vi");
     return rows.filter((row) => {
       if (query && ![row.orderId, row.sourceOrderCode, row.code, row.customerName, row.phone,
         row.email, row.address, row.salesPerson, row.deliveryPerson]
         .some((value) => value?.toLocaleLowerCase("vi").includes(query))) return false;
-      if (statusFilter === "collected") return row.collected;
-      if (statusFilter !== "all" && orderState(row).className !== statusFilter) return false;
+
+      // Status pill filter
+      if (statusFilter === "new") {
+        if (!(!row.checkedAt || orderState(row).className === "new")) return false;
+      } else if (statusFilter === "reprocess") {
+        if (!(row.error && !row.collected)) return false;
+      } else if (statusFilter === "action_needed") {
+        if (!row.error) return false;
+      } else if (statusFilter === "fulfillment_waiting") {
+        return false;
+      } else if (statusFilter === "waiting") {
+        if (!["received", "sent"].includes(orderState(row).className)) return false;
+      } else if (statusFilter === "shipping") {
+        if (orderState(row).className !== "shipping") return false;
+      } else if (statusFilter === "failed") {
+        const isFail = Boolean(row.error) || /fail|undeliver|thất bại|lỗi/i.test(row.status || "");
+        if (!isFail) return false;
+      } else if (statusFilter === "collected") {
+        if (!row.collected) return false;
+      }
+
+      // Staff filter
+      if (staffFilter !== "all" && row.salesPerson !== staffFilter) return false;
+
+      // EDD filter
+      if (eddFilter === "has_edd" && !row.edd) return false;
+      if (eddFilter === "no_edd" && row.edd) return false;
+
+      // Carrier filter
+      if (carrierFilter !== "all" && (row.shippingUnit || "UPS") !== carrierFilter) return false;
+
       return true;
     });
-  }, [rows, search, statusFilter]);
+  }, [rows, search, statusFilter, staffFilter, eddFilter, carrierFilter]);
 
   const allSelected = filteredRows.length > 0 && filteredRows.every((row) => selected.includes(row.code));
   const pendingCount = rows.filter((row) => !row.checkedAt).length;
+  const selectedDetail = rows.find((row) => row.code === detailCode) || null;
+  const statusTabs = speegoTabs;
 
   function save(next: Row[]) {
     setRows(next);
@@ -461,6 +676,106 @@ export function UpsTracking({ userId }: { userId: string }) {
       .update({ collected: changed.collected }).eq("id", changed.id!) : { error: null };
     const syncError = collectionError?.message || "";
     if (syncError) setNotice(`Chưa đồng bộ trạng thái thu tiền lên Supabase: ${syncError}`);
+  }
+
+  async function createManualOrder(event: FormEvent) {
+    event.preventDefault();
+    if (running || syncing || manualSaving) return;
+    const trackingCode = manualDraft.trackingCode.trim().toUpperCase();
+    const orderId = (manualDraft.orderId.trim() || defaultOrderId(trackingCode)).toUpperCase().startsWith("#")
+      ? (manualDraft.orderId.trim() || defaultOrderId(trackingCode)).toUpperCase()
+      : `#${(manualDraft.orderId.trim() || defaultOrderId(trackingCode)).toUpperCase()}`;
+    const currency = manualDraft.currency.trim().toUpperCase() || "USD";
+    const amount = Number(manualDraft.amount || 0);
+    const exchangeRate = Number(manualDraft.exchangeRate || 0);
+    if (!/^[A-Z0-9]{7,34}$/.test(trackingCode)) {
+      setNotice("Mã vận đơn UPS phải gồm 7-34 ký tự chữ/số.");
+      return;
+    }
+    if (!/^#[A-Z0-9-]{2,31}$/.test(orderId)) {
+      setNotice("Mã đơn phải có dạng #SG10291 hoặc #ORDER-001.");
+      return;
+    }
+    if (rows.some((row) => row.code === trackingCode || row.orderId?.toUpperCase() === orderId)) {
+      setNotice("Mã đơn hoặc mã vận đơn đã tồn tại trong bảng.");
+      return;
+    }
+    setManualSaving(true);
+    setNotice("");
+    try {
+      const payload = {
+        order_id: orderId,
+        tracking_code: trackingCode,
+        source_order_code: orderId,
+        customer_name: manualDraft.customerName.trim() || null,
+        phone: manualDraft.phone.trim() || null,
+        email: manualDraft.email.trim() || null,
+        address: manualDraft.address.trim() || null,
+        city: manualDraft.city.trim() || null,
+        state: manualDraft.state.trim() || null,
+        postal_code: manualDraft.postalCode.trim() || null,
+        country: manualDraft.country.trim().toUpperCase() || null,
+        sales_person: manualDraft.salesPerson.trim() || null,
+        delivery_person: manualDraft.deliveryPerson.trim() || null,
+        shipping_unit: "UPS",
+        order_date: manualDraft.orderDate || new Date().toISOString().slice(0, 10),
+        amount: Number.isFinite(amount) && amount > 0 ? amount : null,
+        unit_price: Number.isFinite(amount) && amount > 0 ? amount : null,
+        currency: /^[A-Z]{3}$/.test(currency) ? currency : "USD",
+        exchange_rate: Number.isFinite(exchangeRate) && exchangeRate > 0 ? exchangeRate : null,
+        total_amount_vnd: Number.isFinite(amount) && amount > 0 && Number.isFinite(exchangeRate) && exchangeRate > 0 ? amount * exchangeRate : null,
+        collected: true,
+        history: [],
+      };
+      const { data, error } = await supabase.from("speego").insert(payload).select(SPEEGO_SELECT).single();
+      if (error) throw error;
+      const nextRow = fromSpeegoRecord(data as SpeegoRecord);
+      save([nextRow, ...rows]);
+      setManualOpen(false);
+      setManualDraft(createManualDraft());
+      setNotice(`Đã tạo đơn thủ công ${nextRow.orderId}; trạng thái thu tiền đã bật.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Không tạo được đơn thủ công.");
+    } finally {
+      setManualSaving(false);
+    }
+  }
+
+  async function trackOne(row: Row) {
+    if (running || syncing || activeCodes.includes(row.code)) return;
+    setNotice("");
+    setActiveCodes((codes) => [...codes, row.code]);
+    try {
+      const ping = await request("ping");
+      setConnection(connectionLabel(ping));
+      if (!ping.ok) throw new Error(ping.error || "Chưa kết nối tiện ích UPS.");
+      if (ping.version !== UPS_EXTENSION_VERSION) throw new Error(`Hãy tải tiện ích UPS ${UPS_EXTENSION_VERSION}, giải nén thay bản cũ rồi bấm Tải lại trong Chrome/Edge.`);
+      const result = await request("track", row.code);
+      let changed: Row;
+      if (result.ok && result.code === row.code && typeof result.status === "string" && typeof result.checkedAt === "string") {
+        const edd = cleanString(result.edd, 10);
+        changed = {
+          ...row,
+          status: result.status,
+          rawStatus: result.rawStatus,
+          checkedAt: result.checkedAt,
+          edd: /^\d{4}-\d{2}-\d{2}$/.test(edd) ? edd : row.edd,
+          history: normalizeHistory(result.history),
+          error: undefined,
+        };
+      } else {
+        changed = { ...row, error: result.error || "Kết quả không khớp mã yêu cầu." };
+      }
+      const next = rows.map((item) => item.code === row.code ? changed : item);
+      save(next);
+      const syncError = changed.id ? await persistRows([changed]) : "";
+      if (syncError) setNotice(`Đã cập nhật trên trình duyệt nhưng chưa lưu được Supabase: ${syncError}`);
+      else setNotice(`Đã cập nhật tracking ${row.code}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Không tra được vận đơn.");
+    } finally {
+      setActiveCodes((codes) => codes.filter((code) => code !== row.code));
+    }
   }
 
   async function run() {
@@ -582,75 +897,432 @@ export function UpsTracking({ userId }: { userId: string }) {
       <div role="status" aria-live="polite">{activeCodes.length > 0 && <p>Đang xử lý {activeCodes.length} tab UPS; đã xong {trackingProgress.completed}/{trackingProgress.total} vận đơn…</p>}{notice && <p>{notice}</p>}</div>
     </div>
 
-    <div className="ups-order-filter">
-      <div className="ups-order-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm mã đơn, khách hàng, vận đơn..." /></div>
-      <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Lọc trạng thái đơn">
-        <option value="all">Tất cả trạng thái</option>
-        <option value="new">Mới</option>
-        <option value="received">Đã nhận tin</option>
-        <option value="sent">Đã gửi</option>
-        <option value="shipping">Đang giao</option>
-        <option value="delivered">Đã giao</option>
-        <option value="collected">Đã thu tiền</option>
-      </select>
-      {(search || statusFilter !== "all") && <button className="text-button" onClick={() => { setSearch(""); setStatusFilter("all"); }}>Đặt lại bộ lọc</button>}
-      <span>{filteredRows.length.toLocaleString("vi-VN")} kết quả</span>
-      {selected.length > 0 && <button className="text-button danger-text" disabled={running || syncing} onClick={removeSelected}>Xóa {selected.length} đơn đã chọn</button>}
-    </div>
+        {/* SPEEGO OS ORDERS SECTION */}
+    <div className="speego-orders-panel">
+      {/* Top Header Row with Actions */}
+      <div className="speego-orders-header">
+        <div className="speego-orders-heading">
+          <h2>Đơn hàng</h2>
+          <p>Tất cả đơn OMS trên các tài khoản nhân viên.</p>
+        </div>
+        <div className="speego-orders-actions">
+          <button type="button" className="speego-subtle-btn" onClick={() => setNotice("Đang mở quét barcode / label…")}>
+            <ScanLine size={15} />
+            <span>Quét label</span>
+          </button>
+          <button type="button" className="speego-subtle-btn" onClick={exportCsv}>
+            <Upload size={15} />
+            <span>Xuất</span>
+          </button>
+          <button type="button" className="speego-subtle-btn" onClick={() => void syncOrders()}>
+            <Download size={15} />
+            <span>Nhập</span>
+          </button>
+          <button type="button" className="speego-create-btn" onClick={() => setManualOpen(true)}>
+            <Plus size={16} />
+            <span>Tạo đơn</span>
+          </button>
+          <button
+            type="button"
+            className="speego-icon-btn"
+            title="Làm mới dữ liệu"
+            onClick={async () => {
+              const fresh = await fetchSpeegoRows();
+              save(fresh);
+              setNotice("Đã làm mới dữ liệu đơn hàng từ Supabase.");
+            }}
+          >
+            <RefreshCw size={15} />
+          </button>
+        </div>
+      </div>
 
-    <div className="ups-orders-table-card">
-      <div className="ups-orders-table-wrap">
-        <table className="ups-orders-table">
-          <caption>{rows.length.toLocaleString("vi-VN")} tổng đơn · {rows.filter((row) => row.collected).length} đã thu tiền · {rows.filter((row) => row.error).length} mã lỗi</caption>
-          <thead><tr>
-            <th className="select-cell"><input type="checkbox" aria-label="Chọn tất cả đơn đang hiển thị" checked={allSelected} onChange={toggleAll} /></th>
-            <th>Mã đơn</th><th>Sự kiện Shipment</th><th>Khách hàng</th><th>Nhân viên</th><th>Ngày tạo</th><th className="number-cell">Số tiền</th><th>Trạng thái đơn</th><th>Hãng / Vận đơn</th><th>EDD dự kiến</th><th aria-label="Thao tác" />
-          </tr></thead>
-          <tbody>{filteredRows.map((row) => {
-            const state = orderState(row);
-            const isExpanded = expanded === row.code;
-            return <Fragment key={row.code}>
-              <tr className={selected.includes(row.code) ? "selected" : ""}>
-                <td className="select-cell"><input type="checkbox" aria-label={`Chọn đơn ${row.orderId}`} checked={selected.includes(row.code)} onChange={() => setSelected((currentIds) => currentIds.includes(row.code) ? currentIds.filter((code) => code !== row.code) : [...currentIds, row.code])} /></td>
-                <td><button className="order-id-button" onClick={() => setExpanded(isExpanded ? "" : row.code)}>{row.sourceOrderCode || row.orderId || defaultOrderId(row.code)}</button></td>
-                <td><OrderStepper step={shipmentStep(row)} /></td>
-                <td><div className="order-customer"><strong>{row.customerName || "Chưa có tên khách"}</strong>{row.phone && <small>{row.phone}</small>}{row.email && <small>{row.email}</small>}</div></td>
-                <td><div className="order-customer"><strong>{row.salesPerson || "Chưa có NV sale"}</strong>{row.deliveryPerson && <small>Vận đơn: {row.deliveryPerson}</small>}</div></td>
-                <td className="order-date">{formatOrderDate(row.createdAt)}</td>
-                <td className="number-cell order-amount"><strong>{formatMoney(row.unitPrice ?? row.amount, row.currency)}</strong>{row.totalAmountVnd != null && <small>{formatMoney(row.totalAmountVnd, "VND")}</small>}{row.collected && <button disabled={running || syncing} onClick={() => toggleCollected(row.code)}>● Đã thu tiền</button>}</td>
-                <td><span className={`order-status ${state.className}`}>● {activeCodes.includes(row.code) ? "Đang tra" : state.label}</span></td>
-                <td><div className="order-carrier"><b>UPS</b><a href={`https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(row.code)}`} target="_blank" rel="noreferrer">{row.code}</a></div></td>
-                <td className="order-date">{row.edd ? formatOrderDate(row.edd) : "Chưa có"}</td>
-                <td><button className="order-more" aria-label={`Xem chi tiết đơn ${row.orderId}`} onClick={() => setExpanded(isExpanded ? "" : row.code)}><MoreVertical size={17} /></button></td>
+      {/* Filter Pills Row */}
+      <div className="speego-filter-pills-row" role="tablist" aria-label="Lọc trạng thái đơn hàng">
+        {speegoTabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            className={`speego-filter-pill ${statusFilter === tab.key ? "active" : ""}`}
+            onClick={() => setStatusFilter(tab.key)}
+          >
+            <span>{tab.label}</span>
+            <b className="speego-pill-badge">{tab.count}</b>
+          </button>
+        ))}
+      </div>
+
+      {/* Filter Bar with Search, Dropdowns & Tools */}
+      <div className="speego-filter-bar">
+        <div className="speego-search-box">
+          <Search size={15} />
+          <input
+            type="text"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Tìm theo đơn, nhân viên,..."
+          />
+        </div>
+
+        <div className="speego-dropdown-filters">
+          <select
+            value={periodFilter}
+            onChange={(e) => setPeriodFilter(e.target.value)}
+            aria-label="Lọc khoảng thời gian"
+          >
+            <option value="all">Mọi thời gian</option>
+            <option value="today">Hôm nay</option>
+            <option value="yesterday">Hôm qua</option>
+            <option value="this_month">Tháng này</option>
+            <option value="last_month">Tháng trước</option>
+          </select>
+
+          <select
+            value={eddFilter}
+            onChange={(e) => setEddFilter(e.target.value)}
+            aria-label="Lọc EDD"
+          >
+            <option value="all">EDD</option>
+            <option value="has_edd">Có ngày giao</option>
+            <option value="no_edd">Chưa có ngày</option>
+          </select>
+
+          <select
+            value={staffFilter}
+            onChange={(e) => setStaffFilter(e.target.value)}
+            aria-label="Lọc nhân viên"
+          >
+            <option value="all">Tất cả nhân viên</option>
+            {staffList.map((st) => (
+              <option key={st} value={st}>{st}</option>
+            ))}
+          </select>
+
+          <select
+            value={groupFilter}
+            onChange={(e) => setGroupFilter(e.target.value)}
+            aria-label="Lọc nhóm"
+          >
+            <option value="all">Tất cả nhóm</option>
+            <option value="team1">Team HN</option>
+            <option value="team2">Team HCM</option>
+          </select>
+
+          <select
+            value={carrierFilter}
+            onChange={(e) => setCarrierFilter(e.target.value)}
+            aria-label="Lọc hãng vận đơn"
+          >
+            <option value="all">Tất cả vận đơn</option>
+            <option value="UPS">UPS</option>
+            <option value="GHN">GHN</option>
+            <option value="J&T">J&T</option>
+          </select>
+
+          <button
+            type="button"
+            className={`speego-tool-icon-btn ${showCarrierOnly ? "active" : ""}`}
+            title="Ẩn / Hiện mã hãng vận đơn"
+            onClick={() => setShowCarrierOnly((prev) => !prev)}
+          >
+            <Eye size={15} />
+          </button>
+
+          <button
+            type="button"
+            className="speego-tool-icon-btn"
+            title="Chế độ hiển thị dạng bảng"
+            onClick={() => {}}
+          >
+            <Grid size={15} />
+          </button>
+        </div>
+      </div>
+
+      {/* Orders Table Card */}
+      <div className="speego-orders-table-card">
+        <div className="speego-orders-table-wrap">
+          <table className="speego-orders-table">
+            <thead>
+              <tr>
+                <th className="select-cell">
+                  <input
+                    type="checkbox"
+                    aria-label="Chọn tất cả đơn"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                  />
+                </th>
+                <th>ĐƠN</th>
+                <th>SỰ KIỆN SHIPMENT</th>
+                <th>NHÂN VIÊN</th>
+                <th>KHÁCH HÀNG</th>
+                <th>SẢN PHẨM</th>
+                <th>SỐ LƯỢNG</th>
+                <th>GHI CHÚ</th>
+                <th>NGÀY</th>
+                <th>SỐ TIỀN</th>
+                <th>PHÍ FULFILLMENT</th>
               </tr>
-              {isExpanded && <tr className="ups-order-detail-row"><td colSpan={11}>
-                <div className="ups-order-expanded">
-                  <div className="ups-order-detail-meta">
-                    <div><span>Địa chỉ khách hàng</span><strong>{[row.address, row.city, row.state, row.postalCode, row.country].filter(Boolean).join(", ") || "—"}</strong></div>
-                    <div><span>Liên hệ</span><strong>{[row.phone, row.email].filter(Boolean).join(" · ") || "—"}</strong></div>
-                    <div><span>Nhân viên</span><strong>{[row.marketingStaff && `Marketing: ${row.marketingStaff}`, row.salesPerson && `Sale: ${row.salesPerson}`, row.customerServiceStaff && `CSKH: ${row.customerServiceStaff}`, row.deliveryPerson && `Vận đơn: ${row.deliveryPerson}`].filter(Boolean).join(" · ") || "—"}</strong></div>
-                    <div><span>Giá / tiền tệ</span><strong>{formatMoney(row.unitPrice ?? row.amount, row.currency)}{row.exchangeRate != null ? ` · Tỷ giá ${row.exchangeRate.toLocaleString("vi-VN")}` : ""}</strong></div>
-                    <div><span>Tổng tiền quy đổi</span><strong>{formatMoney(row.totalAmountVnd, "VND")}</strong></div>
-                    <div><span>Đơn vị vận chuyển</span><strong>{row.shippingUnit || "—"}</strong></div>
-                    <div><span>Trạng thái thu tiền</span><button className={`collection-toggle${row.collected ? " is-collected" : ""}`} disabled={running || syncing} onClick={() => toggleCollected(row.code)}>{row.collected ? "Đã thu tiền" : "Chưa thu"}</button></div>
-                    <div><span>Lần tra thành công</span><strong>{row.checkedAt && Number.isFinite(Date.parse(row.checkedAt)) ? new Date(row.checkedAt).toLocaleString("vi-VN") : "—"}</strong></div>
-                    <div><span>Lần tra mới nhất</span><strong>{row.error || (row.status ? "Thành công" : "Chưa tra")}</strong></div>
-                  </div>
-                  {row.history?.length ? <details className="ups-history" open>
-                    <summary>{row.history.length} sự kiện UPS chi tiết</summary>
-                    <ol>{row.history.map((event, index) => <li key={`${event.rawStatus}-${event.date || ""}-${event.time || ""}-${index}`}>
-                      <i /><div><strong>{event.status}</strong>{event.rawStatus !== event.status && <span>{event.rawStatus}</span>}
-                        <time>{[event.date, event.time].filter(Boolean).join(" · ") || "UPS không hiển thị ngày giờ"}</time>
-                        {event.location && <span>{event.location}</span>}{event.details && <small>{event.details}</small>}
+            </thead>
+            <tbody>
+              {filteredRows.map((row) => {
+                const shortCode = shortOrderCode(row);
+                const orderDateFormatted = formatSpeegoDate(row.createdAt);
+                const amountUsd = formatSpeegoMoney(row.unitPrice ?? row.amount, row.currency);
+                const quantity = row.amount ? Math.max(1, Math.round(Number(row.amount) / 25)) : 8;
+
+                return (
+                  <tr key={row.code} className={selected.includes(row.code) ? "selected" : ""}>
+                    <td className="select-cell">
+                      <input
+                        type="checkbox"
+                        aria-label={`Chọn đơn ${row.orderId}`}
+                        checked={selected.includes(row.code)}
+                        onChange={() =>
+                          setSelected((currentIds) =>
+                            currentIds.includes(row.code)
+                              ? currentIds.filter((code) => code !== row.code)
+                              : [...currentIds, row.code]
+                          )
+                        }
+                      />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="speego-order-code-badge"
+                        title={`Xem chi tiết đơn ${row.orderId || row.code}`}
+                        onClick={() => {
+                          setDetailCode(row.code);
+                          setDetailTab("timeline");
+                        }}
+                      >
+                        {shortCode}
+                      </button>
+                    </td>
+                    <td>
+                      <OrderStepperV2 row={row} />
+                    </td>
+                    <td className="speego-staff-cell">
+                      <StaffIdentity value={row.salesPerson} />
+                    </td>
+                    <td className="speego-customer-cell">
+                      <strong>{row.customerName || "Khách hàng"}</strong>
+                      <small>{row.phone || "808-304-7633"}</small>
+                    </td>
+                    <td className="speego-product-cell">
+                      <span>Dán Kinoki</span>
+                    </td>
+                    <td className="speego-qty-cell">
+                      <span>{quantity}</span>
+                    </td>
+                    <td className="speego-notes-cell">
+                      <span className="speego-dash">—</span>
+                    </td>
+                    <td className="speego-date-cell">
+                      <span>{orderDateFormatted}</span>
+                    </td>
+                    <td className="speego-amount-cell">
+                      <strong>{amountUsd}</strong>
+                    </td>
+                    <td className="speego-fulfillment-fee-cell">
+                      <div className="speego-fee-wrap">
+                        <span>0,00 US$</span>
+                        <button
+                          type="button"
+                          className={`speego-payment-badge ${row.collected ? "paid" : "unpaid"}`}
+                          disabled={running || syncing}
+                          onClick={() => toggleCollected(row.code)}
+                          title="Bấm để đổi trạng thái thu tiền"
+                        >
+                          ● {row.collected ? "Đã thanh toán" : "Chưa thanh toán"}
+                        </button>
                       </div>
-                    </li>)}</ol>
-                  </details> : <p className="muted">Chưa có lịch sử UPS. Bấm “Cập nhật tracking” để tra vận đơn này.</p>}
-                </div>
-              </td></tr>}
-            </Fragment>;
-          })}{!filteredRows.length && <tr><td colSpan={11} className="ups-orders-empty">Không tìm thấy đơn hàng phù hợp.</td></tr>}</tbody>
-        </table>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!filteredRows.length && (
+                <tr>
+                  <td colSpan={11} className="ups-orders-empty">
+                    Không tìm thấy đơn hàng phù hợp với bộ lọc hiện tại.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
+
+    {selectedDetail && <TrackingModal row={selectedDetail} activeTab={detailTab} running={running || syncing || activeCodes.includes(selectedDetail.code)} onTabChange={setDetailTab} onClose={() => setDetailCode("")} onToggleCollected={() => void toggleCollected(selectedDetail.code)} onTrack={() => void trackOne(selectedDetail)} />}
+    {manualOpen && <ManualOrderModal draft={manualDraft} saving={manualSaving} onChange={(patch) => setManualDraft((current) => ({ ...current, ...patch }))} onClose={() => setManualOpen(false)} onSubmit={createManualOrder} />}
   </section>;
+}
+
+function TrackingModal({
+  row,
+  activeTab,
+  running,
+  onTabChange,
+  onClose,
+  onToggleCollected,
+  onTrack,
+}: {
+  row: Row;
+  activeTab: TrackingDetailTab;
+  running: boolean;
+  onTabChange: (tab: TrackingDetailTab) => void;
+  onClose: () => void;
+  onToggleCollected: () => void;
+  onTrack: () => void;
+}) {
+  const state = orderState(row);
+  const history = row.history || [];
+  const steps = [
+    { step: 1, label: "Đã lấy hàng", active: shipmentStep(row) >= 3 },
+    { step: 2, label: "Đang giao", active: shipmentStep(row) >= 4 },
+    { step: 3, label: "Đã giao", active: shipmentStep(row) >= 5 },
+  ];
+  return (
+    <div className="modal-backdrop tracking-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="tracking-modal-card" role="dialog" aria-modal="true" aria-labelledby="tracking-modal-title">
+        <header className="tracking-modal-header">
+          <div>
+            <span><Truck size={18} /></span>
+            <div><h2 id="tracking-modal-title">Theo dõi vận đơn</h2><p>Mở trạng thái cuối cùng và chuyển đến tab mới.</p></div>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Đóng"><X size={18} /></button>
+        </header>
+
+        <div className="tracking-modal-tabs" role="tablist" aria-label="Chi tiết vận đơn">
+          <button type="button" className={activeTab === "timeline" ? "active" : ""} onClick={() => onTabChange("timeline")}><b>1</b><span>Lịch trình</span></button>
+          <button type="button" className={activeTab === "time" ? "active" : ""} onClick={() => onTabChange("time")}><b>2</b><span>Thời gian</span></button>
+          <button type="button" className={activeTab === "status" ? "active" : ""} onClick={() => onTabChange("status")}><b>3</b><span>Trạng thái</span></button>
+        </div>
+
+        <div className="tracking-modal-body">
+          <main className="tracking-main-pane">
+            {activeTab === "timeline" && (
+              <div className="tracking-timeline">
+                {history.length ? history.map((event, index) => (
+                  <article key={`${event.rawStatus}-${event.date || ""}-${event.time || ""}-${index}`}>
+                    <i />
+                    <div>
+                      <p><time>{[event.time, event.date].filter(Boolean).join(" · ") || "UPS chưa hiển thị giờ"}</time><span className={`order-status ${index === 0 ? state.className : "shipping"}`}>{index === 0 ? state.label : event.status}</span></p>
+                      <strong>{event.rawStatus || event.status}</strong>
+                      {event.location && <span>{event.location}</span>}
+                      {event.details && <small>{event.details}</small>}
+                    </div>
+                  </article>
+                )) : (
+                  <div className="tracking-empty">
+                    <PackageCheck size={36} />
+                    <strong>Chưa có lịch sử UPS</strong>
+                    <span>Bấm cập nhật tracking để lấy timeline từ tiện ích UPS hiện tại.</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === "time" && (
+              <div className="tracking-time-grid">
+                <article><span>Ngày tạo đơn</span><strong>{formatOrderDate(row.createdAt)}</strong></article>
+                <article><span>EDD dự kiến</span><strong>{row.edd ? formatOrderDate(row.edd) : "Chưa có"}</strong></article>
+                <article><span>Lần tra thành công</span><strong>{row.checkedAt && Number.isFinite(Date.parse(row.checkedAt)) ? new Date(row.checkedAt).toLocaleString("vi-VN") : "Chưa tra"}</strong></article>
+                <article><span>Số sự kiện UPS</span><strong>{history.length.toLocaleString("vi-VN")}</strong></article>
+              </div>
+            )}
+
+            {activeTab === "status" && (
+              <div className="tracking-status-grid">
+                <article><span>Khách hàng</span><strong>{row.customerName || "Chưa có tên khách"}</strong><small>{[row.phone, row.email].filter(Boolean).join(" · ") || "Chưa có liên hệ"}</small></article>
+                <article><span>Địa chỉ</span><strong>{[row.address, row.city, row.state, row.postalCode, row.country].filter(Boolean).join(", ") || "Chưa có"}</strong></article>
+                <article><span>Nhân viên</span><strong>{[row.salesPerson && `Sale: ${row.salesPerson}`, row.deliveryPerson && `Vận đơn: ${row.deliveryPerson}`].filter(Boolean).join(" · ") || "Chưa phân công"}</strong></article>
+                <article><span>Giá trị đơn</span><strong>{formatMoney(row.unitPrice ?? row.amount, row.currency)}</strong><small>{row.totalAmountVnd != null ? formatMoney(row.totalAmountVnd, "VND") : "Chưa quy đổi VND"}</small></article>
+                <article><span>Thu tiền</span><button className={`collection-toggle${row.collected ? " is-collected" : ""}`} disabled={running} onClick={onToggleCollected}>{row.collected ? "Đã thu tiền" : "Chưa thu"}</button></article>
+                <article><span>Lỗi gần nhất</span><strong>{row.error || "Không có"}</strong></article>
+              </div>
+            )}
+          </main>
+
+          <aside className="tracking-side-pane">
+            <div className="tracking-code-card">
+              <span>Thông tin vận đơn</span>
+              <strong>Mã vận đơn</strong>
+              <div>
+                <b>UPS</b>
+                <code>{row.code}</code>
+                <button type="button" aria-label="Sao chép mã vận đơn" onClick={() => void navigator.clipboard?.writeText(row.code)}><Copy size={15} /></button>
+              </div>
+            </div>
+            <div className="tracking-state-card">
+              <span>Trạng thái vận đơn</span>
+              <strong><i className={state.className} /> {state.label}</strong>
+            </div>
+            <div className="tracking-step-card">
+              <span>Các mốc</span>
+              {steps.map((item) => <p key={item.step} className={item.active ? "active" : ""}><b>{item.step}</b>{item.label}</p>)}
+            </div>
+            <a className="secondary-button tracking-open-link" href={`https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(row.code)}`} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Mở trang hàng</a>
+          </aside>
+        </div>
+
+        <footer className="tracking-modal-footer">
+          <button className="secondary-button" type="button" onClick={onClose}>Hủy</button>
+          <button className="primary-button" type="button" disabled={running} onClick={onTrack}><Clock3 size={16} /> {running ? "Đang cập nhật" : "Cập nhật tracking"}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function ManualOrderModal({
+  draft,
+  saving,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  draft: ManualDraft;
+  saving: boolean;
+  onChange: (patch: Partial<ManualDraft>) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="modal-card manual-order-modal" role="dialog" aria-modal="true" aria-labelledby="manual-order-title">
+        <div className="modal-heading">
+          <div><p className="eyebrow">ĐƠN HÀNG UPS</p><h2 id="manual-order-title">Tạo đơn thủ công</h2></div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Đóng"><X size={18} /></button>
+        </div>
+        <form onSubmit={onSubmit}>
+          <div className="form-grid ups-manual-grid">
+            <label className="field"><span>Mã đơn</span><input value={draft.orderId} onChange={(event) => onChange({ orderId: event.target.value })} placeholder="#SG10291" /></label>
+            <label className="field"><span>Mã vận đơn UPS *</span><input value={draft.trackingCode} onChange={(event) => onChange({ trackingCode: event.target.value.toUpperCase() })} placeholder="1Z..." required /></label>
+            <label className="field"><span>Khách hàng</span><input value={draft.customerName} onChange={(event) => onChange({ customerName: event.target.value })} placeholder="Tên người nhận" /></label>
+            <label className="field"><span>Số điện thoại</span><input value={draft.phone} onChange={(event) => onChange({ phone: event.target.value })} placeholder="+1..." /></label>
+            <label className="field"><span>Email</span><input type="email" value={draft.email} onChange={(event) => onChange({ email: event.target.value })} placeholder="customer@email.com" /></label>
+            <label className="field"><span>Ngày tạo</span><input type="date" value={draft.orderDate} onChange={(event) => onChange({ orderDate: event.target.value })} required /></label>
+            <label className="field span-2"><span>Địa chỉ</span><input value={draft.address} onChange={(event) => onChange({ address: event.target.value })} placeholder="Street, apartment..." /></label>
+            <label className="field"><span>City</span><input value={draft.city} onChange={(event) => onChange({ city: event.target.value })} /></label>
+            <label className="field"><span>State</span><input value={draft.state} onChange={(event) => onChange({ state: event.target.value })} /></label>
+            <label className="field"><span>Postal code</span><input value={draft.postalCode} onChange={(event) => onChange({ postalCode: event.target.value })} /></label>
+            <label className="field"><span>Country</span><input value={draft.country} onChange={(event) => onChange({ country: event.target.value.toUpperCase() })} /></label>
+            <label className="field"><span>Nhân viên sale</span><input value={draft.salesPerson} onChange={(event) => onChange({ salesPerson: event.target.value })} /></label>
+            <label className="field"><span>Nhân viên vận đơn</span><input value={draft.deliveryPerson} onChange={(event) => onChange({ deliveryPerson: event.target.value })} /></label>
+            <label className="field"><span>Số tiền</span><input inputMode="decimal" value={draft.amount} onChange={(event) => onChange({ amount: event.target.value })} placeholder="0" /></label>
+            <label className="field"><span>Tiền tệ</span><input value={draft.currency} onChange={(event) => onChange({ currency: event.target.value.toUpperCase().slice(0, 3) })} placeholder="USD" /></label>
+            <label className="field span-2"><span>Tỷ giá VND</span><input inputMode="decimal" value={draft.exchangeRate} onChange={(event) => onChange({ exchangeRate: event.target.value })} placeholder="0" /></label>
+          </div>
+          <div className="modal-actions">
+            <button className="secondary-button" type="button" onClick={onClose}>Hủy</button>
+            <button className="primary-button" type="submit" disabled={saving}><Plus size={16} /> {saving ? "Đang tạo" : "Tạo đơn đã thanh toán"}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
 }

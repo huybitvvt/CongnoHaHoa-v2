@@ -1,6 +1,30 @@
 import type { RouteAssignedStaff, RouteLocationItem } from "@/lib/route-helpers";
 
-export type TabKey = "overview" | "debts" | "payments" | "returns" | "sales_routes" | "zalo_contacts" | "customers_list" | "staff" | "routes" | "ups_tracking";
+export type TabKey =
+  | "overview"
+  | "debts"
+  | "payments"
+  | "returns"
+  | "sales_routes"
+  | "zalo_contacts"
+  | "customers_list"
+  | "staff"
+  | "routes"
+  | "ups_tracking"
+  | "warehouse"
+  | "warehouse_locations"
+  | "warehouse_expiry"
+  | "warehouse_serials"
+  | "warehouse_combos"
+  | "fulfillment"
+  | "permissions"
+  | "settlements"
+  | "payout"
+  | "backup"
+  | "app_settings"
+  | "help"
+  | "api_integrations"
+  | "privacy_policy";
 
 export type DebtStatus = "paid" | "overdue" | "due_soon" | "open";
 
@@ -72,6 +96,44 @@ export interface CustomerOption {
   phone: string | null;
   address: string | null;
   region: string | null;
+}
+
+export interface SpeegoOrderRow {
+  id: string;
+  source_order_id: string | null;
+  source_order_code: string | null;
+  order_id: string;
+  tracking_code: string;
+  customer_name: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
+  marketing_staff: string | null;
+  sales_person: string | null;
+  customer_service_staff: string | null;
+  delivery_person: string | null;
+  shipping_unit: string | null;
+  order_date: string;
+  amount: number | null;
+  unit_price: number | null;
+  currency: string | null;
+  exchange_rate: number | null;
+  total_amount_vnd: number | null;
+  source_updated_at: string | null;
+  source_synced_at: string | null;
+  edd: string | null;
+  collected: boolean;
+  status: string | null;
+  raw_status: string | null;
+  checked_at: string | null;
+  error: string | null;
+  history: unknown;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface AppSettings {

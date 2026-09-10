@@ -5,5 +5,5 @@ import nextTypeScript from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTypeScript,
-  globalIgnores([".next/**", "node_modules/**", "supabase/.temp/**", ".runner-data/**", ".runner-package/**"]),
+  globalIgnores([".next/**", "node_modules/**", "supabase/.temp/**", ".runner-data/**", ".runner-package/**", ".chrome-ui-check/**"]),
 ]);
