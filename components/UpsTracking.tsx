@@ -50,7 +50,7 @@ type Row = {
 };
 
 type Response = Partial<Row> & { ok: boolean; fatal?: boolean; version?: string };
-type SyncResponse = { ok: boolean; error?: string; sourceRows?: number; inserted?: number; updated?: number; from?: string; before?: string };
+type SyncResponse = { ok: boolean; error?: string; sourceRows?: number; supabaseRows?: number; speedGoRows?: number; speedGoTrackingRows?: number; inserted?: number; updated?: number; from?: string; before?: string };
 type ShipmentStep = 1 | 2 | 3 | 4 | 5;
 
 type SpeegoRecord = {
@@ -443,7 +443,7 @@ export function UpsTracking({ userId }: { userId: string }) {
       const databaseRows = await fetchSpeegoRows();
       save(databaseRows);
       setDatabase("Đồng bộ Supabase · bảng speego");
-      setNotice(`Đã đọc ${result.sourceRows || 0} đơn UPS có mã 1Z từ bảng orders: thêm ${result.inserted || 0}, cập nhật ${result.updated || 0}.`);
+      setNotice(`Đã hợp nhất ${result.sourceRows || 0} mã UPS có tiền tố 1Z (Supabase ${result.supabaseRows || 0}; SpeedGo ${result.speedGoRows || 0} đơn / ${result.speedGoTrackingRows || 0} mã): thêm ${result.inserted || 0}, cập nhật ${result.updated || 0}.`);
     } catch (error) {
       setDatabase("Lỗi đồng bộ bảng speego");
       setNotice(error instanceof Error ? error.message : "Đồng bộ đơn hàng thất bại.");

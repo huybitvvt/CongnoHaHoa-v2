@@ -8,9 +8,9 @@ Không có kết luận máy đạt 2.000 đơn/30 phút trước khi đo UPS th
 - Máy nhà chạy bộ Runner và profile UPS. Laptop chỉ cần mở website và đăng nhập tài khoản được cấp quyền; không cần cài Node hoặc extension để xem kết quả. Dữ liệu nằm chung trên Supabase, không phụ thuộc laptop có đang mở hay không.
 - Website đang mở làm mới danh sách khoảng 15 giây/lần khi không chạy tác vụ thủ công. Tab bị trình duyệt cho ngủ có thể cập nhật trễ; mở lại hoặc tải lại trang để lấy dữ liệu mới.
 - Runner đọc lại danh sách đơn trong `speego` khoảng 60 giây/lần khi kết nối bình thường. 100 mã + 100 mã mới = theo dõi 200; thêm 200 nữa = theo dõi 400. Không cần dừng hoặc khởi động lại. Chỉ giữ số tab tối đa đã đặt, không mở 400 tab.
-- Đơn mới phải **đã lưu vào bảng speego**. Nếu chỉ thêm trong hệ thống nguồn, bấm **Đồng bộ đơn tháng 9** trên web để đưa vào SpeeGo. Runner không tự gọi luồng nhập nguồn; bộ lọc nguồn hiện vẫn là tháng 9/2026.
+- Đơn mới phải **đã lưu vào bảng speego**. Nếu chỉ thêm trong hệ thống nguồn, bấm **Đồng bộ đơn tháng 9** trên web. Nút đọc bảng `orders` của Supabase nguồn và hai collection `orders`/`users` của SpeedGo Firestore, chỉ ghi vào Supabase đích. Runner không tự gọi luồng nhập nguồn; bộ lọc hiện vẫn là tháng 9/2026.
 - Mỗi đơn thành công có lịch riêng sau 30 phút. Khi lượng việc vượt khả năng máy, các mã chờ đến lượt và có thể trễ hơn 30 phút; không mở thêm tab vượt mức để cố bù. Thêm mã mới không xóa kết quả hoặc đặt lại lịch của các mã đang có.
-- Mã trùng không được tạo thành hai dòng UPS trong bảng đích. Nếu nguồn có mã trùng/khớp mâu thuẫn, thao tác đồng bộ báo lỗi để xử lý, không âm thầm ghi đè đơn khác.
+- Mã trùng không được tạo thành hai dòng UPS trong bảng đích. Nếu nhiều đơn SpeedGo dùng chung một mã, nút chọn đơn được cập nhật mới nhất và báo riêng số đơn/số mã. Xung đột định danh giữa các dòng đích vẫn làm thao tác dừng trước khi ghi nhầm.
 
 ## Các tình huống đã gia cố trong 0.4.1
 

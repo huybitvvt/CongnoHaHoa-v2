@@ -13,9 +13,11 @@ Trong cửa sổ đo nhanh, toàn bộ tiến trình Chrome/Node trên máy dùn
 
 Trong lúc runner đang quét, đồng bộ thật chỉ đọc bảng `orders` nguồn và thêm 13 đơn UPS tháng 9 mới vào đích. Hàng đợi tự tăng 54 → 67 sau lượt làm mới, không restart; đối chiếu sau đó cho thấy đủ 39/39 đơn nguồn và không còn đơn nguồn bị thiếu ở đích. Cả 39 dòng đều giữ đủ name, phone, address, delivery staff, amount, unit price và currency khi nguồn có dữ liệu. Schema nguồn thực tế không có cột email nên email của 39 dòng này là `null`; không tự suy đoán dữ liệu. Đóng profile-1 đang rảnh: profile-2 tiếp tục chạy, supervisor mở lại profile-1 sau khoảng 97 giây và extension 0.4.0 tự kết nối.
 
+Đã kiểm tra bundle production `speedgo-os.web.app`: trang settlement đăng nhập Firebase rồi đọc trực tiếp Firestore `orders` và `users`; nút làm mới không gọi API REST danh sách đơn. Dữ liệu thật ngày kiểm tra có 44 đơn tháng 9, 26 đơn có mã UPS nhưng chỉ 23 mã duy nhất. Cả 26 có tên, số điện thoại, địa chỉ, người tạo/người bán, số tiền và tiền tệ; trường email tồn tại nhưng đều trống. Luồng mới chỉ gửi `GET` tới Firestore sau bước đăng nhập, chọn đơn cập nhật mới nhất khi nhiều đơn dùng chung mã, và gộp 23 mã mới vào Supabase đích. Tổng đích tăng 67 → 90; chạy lại cho kết quả thêm 0, cập nhật 62. Supabase nguồn và SpeedGo không nhận thao tác ghi.
+
 Restart bản cũ tái hiện thời gian chờ lease gần 5 phút. Runner 0.4.3 lưu `owner-id` trong `.runner-data`: restart cùng bộ cài nhận lại quyền ngay, còn data directory/máy khác vẫn chờ lease. Thử dừng coordinator khi một lượt UPS đang chạy: profile giữ 1 kết quả trong localStorage; sau restart kết quả được nhận và gửi, localStorage và SQLite outbox đều về 0.
 
-Công cụ benchmark đã sửa hai lỗi phát hiện trong lần đo: quick trước đây có thể bị chạy thành full khi `full_at` quá cũ, và trần điều khiển bị để lại ở 1 sau phép thử. Công cụ hiện ép đúng chế độ, khôi phục trần cũ và ghi thêm tốc độ thành công cùng độ trễ upload. Toàn bộ 70 test tự động, lint và production build đã qua sau thay đổi.
+Công cụ benchmark đã sửa hai lỗi phát hiện trong lần đo: quick trước đây có thể bị chạy thành full khi `full_at` quá cũ, và trần điều khiển bị để lại ở 1 sau phép thử. Công cụ hiện ép đúng chế độ, khôi phục trần cũ và ghi thêm tốc độ thành công cùng độ trễ upload. Toàn bộ 71 test tự động và production build đã qua sau thay đổi; lint qua sau khi xóa công cụ phân tích bundle tạm thời.
 
 ## Bổ sung Runner 0.4.2
 
