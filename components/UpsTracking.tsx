@@ -30,6 +30,13 @@ import {
 } from "lucide-react";
 import { UpsRunner } from "@/components/UpsRunner";
 import { supabase } from "@/lib/supabase";
+import {
+  localDateKey,
+  matchesOrderDate,
+  parseTrackingCodes,
+  trackingOrderId,
+  type SpeegoPeriod,
+} from "@/lib/speego-order-utils";
 
 type TrackingEvent = {
   status: string;
@@ -158,16 +165,12 @@ function createManualDraft(): ManualDraft {
     amount: "",
     currency: "USD",
     exchangeRate: "0",
-    orderDate: new Date().toISOString().slice(0, 10),
+    orderDate: localDateKey(),
   };
 }
 
 function cleanString(value: unknown, maxLength: number) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
-}
-
-function defaultOrderId(code: string) {
-  return `#${code.slice(-4).toUpperCase()}`;
 }
 
 function numberValue(value: unknown) {
@@ -234,7 +237,7 @@ function normalizeSavedRow(value: unknown): Row | null {
   return {
     id: cleanString(record.id, 50) || undefined,
     code,
-    orderId: cleanString(record.orderId, 32) || defaultOrderId(code),
+    orderId: cleanString(record.orderId, 32) || trackingOrderId(code),
     sourceOrderId: cleanString(record.sourceOrderId, 160) || undefined,
     sourceOrderCode: cleanString(record.sourceOrderCode, 160) || undefined,
     customerName: cleanString(record.customerName, 120) || undefined,
@@ -466,8 +469,12 @@ export function UpsTracking({ userId }: { userId: string }) {
   const [manualOpen, setManualOpen] = useState(false);
   const [manualDraft, setManualDraft] = useState<ManualDraft>(() => createManualDraft());
   const [manualSaving, setManualSaving] = useState(false);
+  const [quickCodes, setQuickCodes] = useState("");
+  const [quickAdding, setQuickAdding] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
-  const [periodFilter, setPeriodFilter] = useState("all");
+  const [periodFilter, setPeriodFilter] = useState<SpeegoPeriod>("all");
+  const [dayFilter, setDayFilter] = useState("");
+  const [monthFilter, setMonthFilter] = useState("");
   const [eddFilter, setEddFilter] = useState("all");
   const [staffFilter, setStaffFilter] = useState("all");
   const [groupFilter, setGroupFilter] = useState("all");
@@ -588,9 +595,11 @@ export function UpsTracking({ userId }: { userId: string }) {
       // Carrier filter
       if (carrierFilter !== "all" && (row.shippingUnit || "UPS") !== carrierFilter) return false;
 
+      if (!matchesOrderDate(row.createdAt, { day: dayFilter, month: monthFilter, period: periodFilter })) return false;
+
       return true;
     });
-  }, [rows, search, statusFilter, staffFilter, eddFilter, carrierFilter]);
+  }, [rows, search, statusFilter, staffFilter, eddFilter, carrierFilter, dayFilter, monthFilter, periodFilter]);
 
   const allSelected = filteredRows.length > 0 && filteredRows.every((row) => selected.includes(row.code));
   const pendingCount = rows.filter((row) => !row.checkedAt).length;
@@ -682,9 +691,9 @@ export function UpsTracking({ userId }: { userId: string }) {
     event.preventDefault();
     if (running || syncing || manualSaving) return;
     const trackingCode = manualDraft.trackingCode.trim().toUpperCase();
-    const orderId = (manualDraft.orderId.trim() || defaultOrderId(trackingCode)).toUpperCase().startsWith("#")
-      ? (manualDraft.orderId.trim() || defaultOrderId(trackingCode)).toUpperCase()
-      : `#${(manualDraft.orderId.trim() || defaultOrderId(trackingCode)).toUpperCase()}`;
+    const orderId = (manualDraft.orderId.trim() || trackingOrderId(trackingCode)).toUpperCase().startsWith("#")
+      ? (manualDraft.orderId.trim() || trackingOrderId(trackingCode)).toUpperCase()
+      : `#${(manualDraft.orderId.trim() || trackingOrderId(trackingCode)).toUpperCase()}`;
     const currency = manualDraft.currency.trim().toUpperCase() || "USD";
     const amount = Number(manualDraft.amount || 0);
     const exchangeRate = Number(manualDraft.exchangeRate || 0);
@@ -718,7 +727,7 @@ export function UpsTracking({ userId }: { userId: string }) {
         sales_person: manualDraft.salesPerson.trim() || null,
         delivery_person: manualDraft.deliveryPerson.trim() || null,
         shipping_unit: "UPS",
-        order_date: manualDraft.orderDate || new Date().toISOString().slice(0, 10),
+        order_date: manualDraft.orderDate || localDateKey(),
         amount: Number.isFinite(amount) && amount > 0 ? amount : null,
         unit_price: Number.isFinite(amount) && amount > 0 ? amount : null,
         currency: /^[A-Z]{3}$/.test(currency) ? currency : "USD",
@@ -738,6 +747,62 @@ export function UpsTracking({ userId }: { userId: string }) {
       setNotice(error instanceof Error ? error.message : "Không tạo được đơn thủ công.");
     } finally {
       setManualSaving(false);
+    }
+  }
+
+  async function addTrackingCodes() {
+    if (running || syncing || quickAdding) return;
+    const parsed = parseTrackingCodes(quickCodes);
+    if (!parsed.valid.length) {
+      setNotice(parsed.invalid.length ? "Không có mã hợp lệ. Mã UPS phải gồm 7-34 ký tự chữ/số." : "Hãy nhập ít nhất một mã vận đơn UPS.");
+      return;
+    }
+
+    const knownCodes = new Set(rows.map((row) => row.code));
+    const remainingCapacity = Math.max(0, MAX_ORDERS - rows.length);
+    const newCodes = parsed.valid.filter((code) => !knownCodes.has(code)).slice(0, remainingCapacity);
+    const skippedExisting = parsed.valid.length - parsed.valid.filter((code) => !knownCodes.has(code)).length;
+    const skippedCapacity = parsed.valid.filter((code) => !knownCodes.has(code)).length - newCodes.length;
+    if (!newCodes.length) {
+      setNotice(remainingCapacity === 0 ? `Bảng đã đạt giới hạn ${MAX_ORDERS.toLocaleString("vi-VN")} đơn.` : "Các mã vừa nhập đã có trong bảng.");
+      return;
+    }
+
+    setQuickAdding(true);
+    setNotice("");
+    try {
+      let inserted = 0;
+      const orderDate = localDateKey();
+      for (let offset = 0; offset < newCodes.length; offset += DATABASE_WRITE_BATCH_SIZE) {
+        const payload = newCodes.slice(offset, offset + DATABASE_WRITE_BATCH_SIZE).map((trackingCode) => ({
+          order_id: trackingOrderId(trackingCode),
+          tracking_code: trackingCode,
+          source_order_code: trackingOrderId(trackingCode),
+          shipping_unit: "UPS",
+          order_date: orderDate,
+          collected: false,
+          history: [],
+        }));
+        const { data, error } = await supabase.from("speego")
+          .upsert(payload, { onConflict: "tracking_code", ignoreDuplicates: true })
+          .select("tracking_code");
+        if (error) throw error;
+        inserted += data?.length || 0;
+      }
+
+      const freshRows = await fetchSpeegoRows();
+      save(freshRows);
+      setQuickCodes("");
+      const details = [
+        skippedExisting ? `${skippedExisting} mã đã tồn tại` : "",
+        parsed.invalid.length ? `${parsed.invalid.length} mã không hợp lệ` : "",
+        skippedCapacity ? `${skippedCapacity} mã vượt giới hạn bảng` : "",
+      ].filter(Boolean);
+      setNotice(`Đã thêm ${inserted.toLocaleString("vi-VN")} mã vào bảng speego${details.length ? `; bỏ qua ${details.join(", ")}` : ""}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Không thêm được mã vào bảng speego.");
+    } finally {
+      setQuickAdding(false);
     }
   }
 
@@ -937,6 +1002,30 @@ export function UpsTracking({ userId }: { userId: string }) {
         </div>
       </div>
 
+      <div className="speego-quick-add" aria-label="Thêm nhanh mã vận đơn UPS">
+        <div>
+          <strong>Thêm mã UPS vào bảng</strong>
+          <span>Dán một hoặc nhiều mã, ngăn cách bằng dòng mới, dấu phẩy hoặc khoảng trắng.</span>
+        </div>
+        <textarea
+          value={quickCodes}
+          onChange={(event) => setQuickCodes(event.target.value.toUpperCase())}
+          placeholder={"1Z...\n1Z..."}
+          rows={2}
+          disabled={quickAdding || running || syncing}
+          aria-label="Danh sách mã vận đơn UPS"
+        />
+        <button
+          type="button"
+          className="speego-create-btn"
+          disabled={quickAdding || running || syncing || !quickCodes.trim()}
+          onClick={() => void addTrackingCodes()}
+        >
+          <Plus size={16} />
+          <span>{quickAdding ? "Đang thêm" : "Thêm vào bảng"}</span>
+        </button>
+      </div>
+
       {/* Filter Pills Row */}
       <div className="speego-filter-pills-row" role="tablist" aria-label="Lọc trạng thái đơn hàng">
         {speegoTabs.map((tab) => (
@@ -967,7 +1056,11 @@ export function UpsTracking({ userId }: { userId: string }) {
         <div className="speego-dropdown-filters">
           <select
             value={periodFilter}
-            onChange={(e) => setPeriodFilter(e.target.value)}
+            onChange={(event) => {
+              setPeriodFilter(event.target.value as SpeegoPeriod);
+              setDayFilter("");
+              setMonthFilter("");
+            }}
             aria-label="Lọc khoảng thời gian"
           >
             <option value="all">Mọi thời gian</option>
@@ -976,6 +1069,34 @@ export function UpsTracking({ userId }: { userId: string }) {
             <option value="this_month">Tháng này</option>
             <option value="last_month">Tháng trước</option>
           </select>
+
+          <label className="speego-date-filter">
+            <span>Ngày</span>
+            <input
+              type="date"
+              value={dayFilter}
+              onChange={(event) => {
+                setDayFilter(event.target.value);
+                setMonthFilter("");
+                setPeriodFilter("all");
+              }}
+              aria-label="Lọc theo ngày tạo đơn"
+            />
+          </label>
+
+          <label className="speego-date-filter">
+            <span>Tháng</span>
+            <input
+              type="month"
+              value={monthFilter}
+              onChange={(event) => {
+                setMonthFilter(event.target.value);
+                setDayFilter("");
+                setPeriodFilter("all");
+              }}
+              aria-label="Lọc theo tháng tạo đơn"
+            />
+          </label>
 
           <select
             value={eddFilter}
@@ -1027,6 +1148,26 @@ export function UpsTracking({ userId }: { userId: string }) {
           >
             <Eye size={15} />
           </button>
+
+          {(search || statusFilter !== "all" || periodFilter !== "all" || dayFilter || monthFilter || eddFilter !== "all" || staffFilter !== "all" || groupFilter !== "all" || carrierFilter !== "all") && (
+            <button
+              type="button"
+              className="speego-clear-filter"
+              onClick={() => {
+                setSearch("");
+                setStatusFilter("all");
+                setPeriodFilter("all");
+                setDayFilter("");
+                setMonthFilter("");
+                setEddFilter("all");
+                setStaffFilter("all");
+                setGroupFilter("all");
+                setCarrierFilter("all");
+              }}
+            >
+              Xóa lọc · {filteredRows.length.toLocaleString("vi-VN")} đơn
+            </button>
+          )}
 
           <button
             type="button"

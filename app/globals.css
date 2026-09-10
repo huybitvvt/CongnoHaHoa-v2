@@ -4294,6 +4294,33 @@ html.light-theme .prod-badge-letter {
   flex-wrap: wrap;
 }
 
+.speego-quick-add {
+  display: grid;
+  grid-template-columns: minmax(210px, .7fr) minmax(320px, 1.5fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  color: var(--ui-text, #fff);
+  background: var(--ui-panel, #141210);
+  border: 1px solid var(--ui-border, #292420);
+  border-radius: 12px;
+}
+
+.speego-quick-add > div { display: grid; gap: 4px; }
+.speego-quick-add strong { font-size: .82rem; }
+.speego-quick-add span { color: var(--ui-muted, #a1a1aa); font-size: .72rem; line-height: 1.45; }
+.speego-quick-add textarea {
+  width: 100%;
+  min-height: 58px;
+  max-height: 140px;
+  resize: vertical;
+  padding: 9px 11px;
+  font-family: Consolas, monospace;
+  font-size: .75rem;
+  line-height: 1.45;
+}
+.speego-quick-add .speego-create-btn { min-height: 38px; white-space: nowrap; }
+
 .speego-subtle-btn {
   display: inline-flex;
   align-items: center;
@@ -4473,6 +4500,46 @@ html.light-theme .prod-badge-letter {
 .speego-dropdown-filters select:hover {
   border-color: #3f3831;
 }
+
+.speego-date-filter {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  color: var(--ui-muted, #a1a1aa);
+  background: var(--ui-raised, #141210);
+  border: 1px solid var(--ui-border, #292420);
+  border-radius: 8px;
+}
+
+.speego-date-filter > span { font-size: .7rem; font-weight: 700; }
+.speego-date-filter input {
+  width: 122px;
+  min-height: 30px;
+  padding: 0;
+  color: var(--ui-text, #fff);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  font-size: .72rem;
+}
+.speego-date-filter input[type="month"] { width: 108px; }
+.speego-date-filter input:focus { box-shadow: none; }
+.speego-clear-filter {
+  min-height: 32px;
+  padding: 6px 10px;
+  color: #fdba74;
+  background: rgba(249, 115, 22, .1);
+  border: 1px solid rgba(249, 115, 22, .26);
+  border-radius: 8px;
+  font: inherit;
+  font-size: .7rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.speego-clear-filter:hover { background: rgba(249, 115, 22, .18); }
 
 .speego-tool-icon-btn {
   width: 32px;
@@ -5064,3 +5131,15 @@ html.light-theme .staff-table-card, html.light-theme .wh-operations-preserved .o
 html.light-theme .wh-operations-preserved .ops-table-wrap { border-color: var(--ui-border); }
 @media (max-width: 1100px) { .wh-operations-preserved .ops-kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .wh-operations-preserved .ops-two-column { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 600px) { .mini-kpi-card { padding: 16px; gap: 10px; } .wh-operations-preserved .ops-module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 980px) {
+  .speego-quick-add { grid-template-columns: 1fr auto; }
+  .speego-quick-add > div { grid-column: 1 / -1; }
+  .speego-search-box { max-width: none; flex-basis: 100%; }
+  .speego-dropdown-filters { width: 100%; }
+}
+@media (max-width: 620px) {
+  .speego-quick-add { grid-template-columns: 1fr; }
+  .speego-quick-add .speego-create-btn { width: 100%; justify-content: center; }
+  .speego-dropdown-filters > select, .speego-date-filter, .speego-clear-filter { width: 100%; }
+  .speego-date-filter input, .speego-date-filter input[type="month"] { width: auto; flex: 1; }
+}
