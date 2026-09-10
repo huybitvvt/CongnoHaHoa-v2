@@ -1,4 +1,14 @@
-# Kiểm chứng ngày 10/09/2026
+# Kiểm chứng đến ngày 11/09/2026
+
+## Bổ sung Runner 0.4.4
+
+Web có thể chọn 1–3 profile Chrome và giới hạn tab tương ứng 10 tab/profile. Kiểm tra thật trên máy test: đang có 3 profile thì chọn 2 làm profile-3 đóng và cổng debug 9324 ngừng phản hồi; chọn lại 3 làm Chrome profile-3 tự mở và kết nối lại. Profile-1 và profile-2 giữ tiện ích 0.4.0 đã cài. Profile-3 mới mở chưa có tiện ích, xác nhận rằng Chrome thường vẫn cần **Load unpacked** một lần trong từng profile; sau khi cài, dữ liệu profile được giữ lại cho các lần sau.
+
+Trong phép thử này Runner ở trạng thái tạm dừng, không nhận việc UPS. RAM trống quan sát khoảng 0,7–1,0 GB nên bộ điều phối tự giới hạn 1 tab; không cố ép quét đồng thời trên máy này. Phép thử này chỉ xác minh điều khiển profile, không phải benchmark UPS.
+
+Giao diện mới có hai gói tải, hướng dẫn bốn bước, nút **Quét ngay**, và luồng **Thêm & quét ngay** cho danh sách mã. Nếu Runner máy nhà đang online, nút quét bật coordinator qua Supabase; nếu Runner offline nhưng trình duyệt hiện tại có tiện ích, web dùng luồng quét cục bộ hiện có.
+
+Smoke test giao diện bằng Chrome xác nhận đủ nút quét, ô nhập mã, bộ lọc ngày/tháng và selector profile; thay đổi 2 → 3 được lưu đúng vào Supabase đích. Thêm tạm một mã từ web thành công rồi xóa mã thử; tổng bảng trở lại 90 dòng và cấu hình trở lại tạm dừng, 3 profile, trần 10 tab. Bộ lọc tháng 9 hiển thị đúng 90/90 dòng; bộ lọc ngày 09/09 hiển thị đúng 42/42 dòng. 83/83 test tự động, TypeScript, lint các file thay đổi và production build đều qua. Lint toàn repo còn 18 lỗi có sẵn trong các màn hình giao diện không thuộc thay đổi này.
 
 ## Bổ sung Runner 0.4.3
 

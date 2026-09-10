@@ -28,6 +28,9 @@ const frequency = (keys) => keys.reduce((result, key) => result.set(key, (result
 const topKey = (counts) => [...counts].sort((a, b) => b[1] - a[1])[0];
 const [testMonth, expectedMonthRows] = topKey(frequency(orderDates.map((row) => row.order_date.slice(0, 7))));
 const [testDay, expectedDayRows] = topKey(frequency(orderDates.map((row) => row.order_date.slice(0, 10))));
+const { data: initialRunner, error: runnerError } = await admin.from('speego_runner')
+  .select('enabled,requested_concurrency,requested_profiles').eq('id', true).single();
+if (runnerError) throw runnerError;
 
 const version = await fetch(`http://127.0.0.1:${debugPort}/json/version`).then((response) => response.json());
 const socket = new WebSocket(version.webSocketDebuggerUrl);
@@ -83,8 +86,23 @@ try {
     quickAdd:!!document.querySelector('.speego-quick-add textarea[aria-label="Danh sách mã vận đơn UPS"]'),
     day:!!document.querySelector('input[aria-label="Lọc theo ngày tạo đơn"]'),
     month:!!document.querySelector('input[aria-label="Lọc theo tháng tạo đơn"]'),
-    manual:!![...document.querySelectorAll('button')].find((button)=>button.textContent.includes('Tạo đơn'))
+    manual:!![...document.querySelectorAll('button')].find((button)=>button.textContent.includes('Tạo đơn')),
+    profiles:!!document.querySelector('select[aria-label="Số profile Chrome cần chạy"]'),
+    scan:!![...document.querySelectorAll('button')].find((button)=>button.textContent.includes('Quét ngay'))
   })`);
+
+  const setSelect = (selector, value) => `(()=>{const select=document.querySelector(${JSON.stringify(selector)});const setter=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set;setter.call(select,${JSON.stringify(String(value))});select.dispatchEvent(new Event('change',{bubbles:true}));return select.value})()`;
+  const profileSelector = 'select[aria-label="Số profile Chrome cần chạy"]';
+  for (const profiles of [2, 3]) {
+    await evaluate(sessionId, setSelect(profileSelector, profiles));
+    let saved = false;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await sleep(250);
+      const { data } = await admin.from('speego_runner').select('requested_profiles').eq('id', true).single();
+      if (data?.requested_profiles === profiles) { saved = true; break; }
+    }
+    if (!saved) throw new Error(`Profile selection ${profiles} was not saved.`);
+  }
 
   const setInput = (selector, value) => `(()=>{const input=document.querySelector(${JSON.stringify(selector)});const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));return input.value})()`;
   await evaluate(sessionId, setInput('input[aria-label="Lọc theo tháng tạo đơn"]', testMonth));
@@ -130,10 +148,12 @@ try {
       shippingUnit: insertedRow.shipping_unit,
       collected: insertedRow.collected,
     },
+    profileSelection: { two: true, three: true },
     screenshot: '.runner-data/orders-ui-check.png',
   }, null, 2));
 } finally {
   await admin.from('speego').delete().eq('tracking_code', testCode);
+  if (initialRunner) await admin.from('speego_runner').update(initialRunner).eq('id', true);
   await call('Target.closeTarget', { targetId }).catch(() => {});
   socket.close();
   await db.auth.signOut({ scope: 'local' });

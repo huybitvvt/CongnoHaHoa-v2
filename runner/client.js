@@ -2,7 +2,7 @@
 (() => {
   const [token, worker] = location.hash.slice(1).split(':');
   if (!token) { document.getElementById('error').textContent = 'Mở file .runner-data/open-dashboard.url trên máy này.'; return; }
-  let version = '', active = 0, polling = false, hadConnection = false, failedPings = 0;
+  let version = '', active = 0, polling = false, hadConnection = false, failedPings = 0, shutdown = false;
   const request = (action, job = {}) => new Promise((resolve) => {
     const requestId = crypto.randomUUID();
     const receive = (event) => {
@@ -45,10 +45,14 @@
       pending.set(job.token, result); persist();
       await flush();
     } catch (error) { document.getElementById('error').textContent = error.message; }
-    finally { active--; }
+    finally {
+      active--;
+      if (shutdown && !active) window.close();
+    }
   }
   async function poll() {
     if (polling || !worker) return;
+    if (shutdown) { if (!active) window.close(); return; }
     polling = true;
     try {
       if (!version) {
@@ -57,7 +61,13 @@
         else if (hadConnection && ++failedPings >= 3 && !active) { location.reload(); return; }
       }
       await flush();
-      const { job } = await api('/claim', { worker, version });
+      const { job, shutdown: shouldClose } = await api('/claim', { worker, version });
+      if (shouldClose) {
+        shutdown = true;
+        document.getElementById('worker').textContent = `${worker} · Đang đóng theo cấu hình số profile`;
+        if (!active) window.close();
+        return;
+      }
       if (job) void execute(job);
       document.getElementById('worker').textContent = `${worker} · Extension ${version || 'chưa kết nối'} · ${active} tab đang xử lý`;
     } catch { version = ''; }
@@ -70,6 +80,7 @@
         : s.cooldownUntil > Date.now() ? 'Đang nghỉ do UPS yêu cầu xác minh' : s.enabled ? 'Tự động đang bật' : 'Đã tạm dừng';
       document.getElementById('error').textContent = s.lastError;
       if (document.activeElement.id !== 'concurrency') document.getElementById('concurrency').value = s.requestedConcurrency;
+      if (document.activeElement.id !== 'profiles') document.getElementById('profiles').value = s.profiles;
       const metrics = [['Tổng đơn', s.total], ['Đến hạn', s.due], ['Đang xử lý', s.active], ['Tab cho phép', s.concurrency],
         ['Chờ gửi Supabase', s.outbox], ['Thành công / phút (15p)', s.successfulPerMinute], ['Lỗi trong 15p', s.failed], ['95% lượt dưới (giây)', s.p95Seconds]];
       const nodes = metrics.map(([label, value]) => {
@@ -83,5 +94,6 @@
   document.getElementById('start').onclick = () => control({ enabled: true });
   document.getElementById('stop').onclick = () => control({ enabled: false });
   document.getElementById('concurrency').onchange = (event) => control({ concurrency: Number(event.target.value) });
+  document.getElementById('profiles').onchange = (event) => control({ profiles: Number(event.target.value) });
   setInterval(poll, 250); setInterval(render, 3000); void poll(); void render();
 })();

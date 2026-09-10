@@ -750,7 +750,7 @@ export function UpsTracking({ userId }: { userId: string }) {
     }
   }
 
-  async function addTrackingCodes() {
+  async function addTrackingCodes(scanAfter = false) {
     if (running || syncing || quickAdding) return;
     const parsed = parseTrackingCodes(quickCodes);
     if (!parsed.valid.length) {
@@ -798,7 +798,9 @@ export function UpsTracking({ userId }: { userId: string }) {
         parsed.invalid.length ? `${parsed.invalid.length} mã không hợp lệ` : "",
         skippedCapacity ? `${skippedCapacity} mã vượt giới hạn bảng` : "",
       ].filter(Boolean);
-      setNotice(`Đã thêm ${inserted.toLocaleString("vi-VN")} mã vào bảng speego${details.length ? `; bỏ qua ${details.join(", ")}` : ""}.`);
+      const addedNotice = `Đã thêm ${inserted.toLocaleString("vi-VN")} mã vào bảng speego${details.length ? `; bỏ qua ${details.join(", ")}` : ""}.`;
+      setNotice(addedNotice);
+      if (scanAfter) await scanNow(freshRows, addedNotice);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Không thêm được mã vào bảng speego.");
     } finally {
@@ -843,12 +845,45 @@ export function UpsTracking({ userId }: { userId: string }) {
     }
   }
 
-  async function run() {
+  async function scanNow(sourceRows: Row[] = rows, prefix = "") {
+    if (running || syncing) return;
+    const waiting = sourceRows.filter((row) => !row.checkedAt).length;
+    if (!waiting) {
+      setNotice(`${prefix ? `${prefix} ` : ""}Không có vận đơn chưa tra.`);
+      return;
+    }
+
+    try {
+      const { data: machine } = await supabase.from("speego_runner")
+        .select("enabled,heartbeat_at").eq("id", true).maybeSingle();
+      const machineOnline = Boolean(machine?.heartbeat_at && Date.now() - Date.parse(machine.heartbeat_at) < 60_000);
+      if (machineOnline) {
+        const { error } = await supabase.from("speego_runner").update({ enabled: true }).eq("id", true);
+        if (!error) {
+          setRunnerBusy(true);
+          setNotice(`${prefix ? `${prefix} ` : ""}Đã bật máy quét tự động. Runner sẽ nhận ${waiting.toLocaleString("vi-VN")} đơn chưa tra trong tối đa khoảng 60 giây.`);
+          return;
+        }
+      }
+
+      const ping = await request("ping");
+      setConnection(connectionLabel(ping));
+      if (!ping.ok || ping.version !== UPS_EXTENSION_VERSION) {
+        setNotice(`${prefix ? `${prefix} ` : ""}Chưa quét: hãy mở Runner máy nhà hoặc cài tiện ích UPS ${UPS_EXTENSION_VERSION} vào trình duyệt này rồi tải lại trang.`);
+        return;
+      }
+      await run(sourceRows);
+    } catch (error) {
+      setNotice(`${prefix ? `${prefix} ` : ""}${error instanceof Error ? error.message : "Không bật được máy quét."}`);
+    }
+  }
+
+  async function run(sourceRows: Row[] = rows) {
     if (locked.current || runnerBusy) return;
     locked.current = true;
     setRunning(true);
     setNotice("");
-    let next = [...rows];
+    let next = [...sourceRows];
     let successful = 0;
     let failed = 0;
     let syncFailed = 0;
@@ -947,13 +982,12 @@ export function UpsTracking({ userId }: { userId: string }) {
       <div className="ups-order-tools-main">
         <div className="ups-connection-state"><i className={connection.startsWith("Đã kết nối") && database.startsWith("Đồng bộ") ? "connected" : ""} /><div><strong>{connection}</strong><small>{database} · Hàng đợi liên tục, tối đa 6 tab khi tra tại đây</small></div></div>
         <div className="ups-order-tool-actions">
-          <a className="secondary-button" href={`/ups-tracking-extension.zip?v=${UPS_EXTENSION_VERSION}`} download>Tải tiện ích</a>
           <button className="secondary-button" disabled={running || syncing} onClick={async () => {
             const result = await request("ping");
             setConnection(connectionLabel(result));
           }}>Kiểm tra kết nối</button>
           <button className="secondary-button" disabled={!rows.length} onClick={exportCsv}>Xuất CSV</button>
-          <button className="secondary-button" disabled={running || syncing || runnerBusy || !pendingCount} onClick={() => void run()}>{running ? `Đang tra ${trackingProgress.completed}/${trackingProgress.total}` : `Tra ${pendingCount} đơn chưa tra`}</button>
+          <button className="primary-button" disabled={running || syncing || runnerBusy || !pendingCount} onClick={() => void scanNow()}>{running ? `Đang quét ${trackingProgress.completed}/${trackingProgress.total}` : runnerBusy ? "Máy đang quét" : `Quét ngay ${pendingCount} đơn`}</button>
           <button className="primary-button" disabled={running || syncing} onClick={() => void syncOrders()}>{syncing ? "Đang đồng bộ…" : "Đồng bộ đơn tháng 9"}</button>
         </div>
       </div>
@@ -971,9 +1005,9 @@ export function UpsTracking({ userId }: { userId: string }) {
           <p>Tất cả đơn OMS trên các tài khoản nhân viên.</p>
         </div>
         <div className="speego-orders-actions">
-          <button type="button" className="speego-subtle-btn" onClick={() => setNotice("Đang mở quét barcode / label…")}>
+          <button type="button" className="speego-subtle-btn" disabled={running || syncing || runnerBusy || !pendingCount} onClick={() => void scanNow()}>
             <ScanLine size={15} />
-            <span>Quét label</span>
+            <span>Quét ngay</span>
           </button>
           <button type="button" className="speego-subtle-btn" onClick={exportCsv}>
             <Upload size={15} />
@@ -1015,15 +1049,14 @@ export function UpsTracking({ userId }: { userId: string }) {
           disabled={quickAdding || running || syncing}
           aria-label="Danh sách mã vận đơn UPS"
         />
-        <button
-          type="button"
-          className="speego-create-btn"
-          disabled={quickAdding || running || syncing || !quickCodes.trim()}
-          onClick={() => void addTrackingCodes()}
-        >
-          <Plus size={16} />
-          <span>{quickAdding ? "Đang thêm" : "Thêm vào bảng"}</span>
-        </button>
+        <div className="speego-quick-add-actions">
+          <button type="button" className="speego-subtle-btn" disabled={quickAdding || running || syncing || !quickCodes.trim()} onClick={() => void addTrackingCodes()}>
+            <Plus size={16} /><span>{quickAdding ? "Đang thêm" : "Chỉ thêm mã"}</span>
+          </button>
+          <button type="button" className="speego-create-btn" disabled={quickAdding || running || syncing || !quickCodes.trim()} onClick={() => void addTrackingCodes(true)}>
+            <ScanLine size={16} /><span>{quickAdding ? "Đang xử lý" : "Thêm & quét ngay"}</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter Pills Row */}

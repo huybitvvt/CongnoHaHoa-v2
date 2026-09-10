@@ -9,8 +9,9 @@ import { createClient } from '@supabase/supabase-js';
 import { Queue, mergeHistory } from './queue.mjs';
 import { AdaptiveLimit, profileLimit } from './adaptive.mjs';
 import { shouldDiscard } from './observations.mjs';
+import { clampProfiles, profileIds, profileIsEnabled, profileNumber } from './profiles.mjs';
 
-const VERSION = '0.4.3';
+const VERSION = '0.4.4';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const envFile = process.env.SPEEGO_RUNNER_ENV || path.join(root, '.env.runner');
 if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
@@ -24,10 +25,10 @@ fs.mkdirSync(dataDir, { recursive: true });
 const port = Number(process.env.SPEEGO_RUNNER_PORT || 4317);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('SPEEGO_RUNNER_PORT phải là số từ 1024 đến 65535.');
 const origin = `http://127.0.0.1:${port}`;
-const profiles = Math.max(1, Math.min(4, Number(process.env.SPEEGO_RUNNER_PROFILES || 3)));
+const configuredProfiles = clampProfiles(process.env.SPEEGO_RUNNER_PROFILES || 3);
 const perProfile = Math.max(1, Math.min(10, Number(process.env.SPEEGO_RUNNER_TABS || 10)));
-if (!Number.isInteger(profiles) || !Number.isInteger(perProfile)) throw new Error('Số profile/tab phải là số nguyên.');
-const maxTabs = Math.min(30, profiles * perProfile);
+if (!Number.isInteger(configuredProfiles) || !Number.isInteger(perProfile)) throw new Error('Số profile/tab phải là số nguyên.');
+const configuredMaxTabs = Math.min(30, configuredProfiles * perProfile);
 const browser = process.env.SPEEGO_RUNNER_BROWSER || [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
@@ -48,14 +49,15 @@ const supabase = createClient(url, key, { auth: { persistSession: false, autoRef
 const queue = new Queue(path.join(dataDir, 'queue.sqlite'), { stopDelivered: process.env.SPEEGO_RUNNER_STOP_DELIVERED === 'true' });
 let enabled = false, connectedAt = 0, controlAt = 0, lastSync = 0, lastHeartbeat = 0, busy = false, closing = false;
 // Apply the hard memory ceiling before an already-open worker can reconnect and claim work.
-const controller = new AdaptiveLimit(maxTabs, Date.now(), os.freemem() / 1024 ** 2);
-let requested = 30, adaptive = controller.limit, cooldownUntil = queue.setting('cooldownUntil') || 0;
+const controller = new AdaptiveLimit(configuredMaxTabs, Date.now(), os.freemem() / 1024 ** 2);
+let requested = 30, requestedProfiles = configuredProfiles, adaptive = controller.limit, cooldownUntil = queue.setting('cooldownUntil') || 0;
 let lastError = '', lastOutbox = 0;
 const bootAt = Date.now();
 const workers = new Map();
 const launches = new Map();
-const validWorker = (worker) => /^profile-[1-4]$/.test(worker) && Number(worker.slice(8)) <= profiles;
+const validWorker = (worker) => profileNumber(worker) > 0 && profileNumber(worker) <= configuredProfiles;
 const now = () => Date.now();
+const activeMaxTabs = () => Math.min(30, requestedProfiles * perProfile);
 const log = (message) => {
   const line = `${new Date().toISOString()} ${message}\n`;
   process.stdout.write(line);
@@ -64,13 +66,18 @@ const log = (message) => {
   fs.appendFileSync(target, line);
 };
 const status = () => ({ ...queue.stats(), enabled, connected: now() - connectedAt < 60_000,
-  concurrency: Math.min(requested, adaptive, maxTabs), requestedConcurrency: requested, maxTabs,
+  concurrency: Math.min(requested, adaptive, activeMaxTabs()), requestedConcurrency: requested, maxTabs: activeMaxTabs(),
   freeMemoryMB: Math.round(os.freemem() / 1024 ** 2),
   cooldownUntil, lastError, lastSync: lastSync ? new Date(lastSync).toISOString() : null,
-  workers: [...workers].map(([id, w]) => ({ id, online: now() - w.at < 20_000, extension: w.version })),
-  uptimeSeconds: Math.round(process.uptime()), version: VERSION, adaptationReason: controller.reason, profiles, perProfile });
+  workers: profileIds(requestedProfiles).map((id) => {
+    const worker = workers.get(id);
+    return { id, online: Boolean(worker && now() - worker.at < 20_000), extension: worker?.version || '' };
+  }),
+  uptimeSeconds: Math.round(process.uptime()), version: VERSION, adaptationReason: controller.reason,
+  profiles: requestedProfiles, configuredProfiles, perProfile });
 
 function launch(worker) {
+  if (!profileIsEnabled(worker, requestedProfiles, configuredProfiles)) return;
   const profileDir = path.join(dataDir, 'profiles', worker);
   const link = `${origin}/worker#${secret}:${worker}`;
   const child = spawn(browser, [`--user-data-dir=${profileDir}`, '--no-first-run', '--no-default-browser-check',
@@ -82,6 +89,25 @@ function launch(worker) {
   child.on('error', () => { lastError = 'Không mở được trình duyệt. Kiểm tra đường dẫn trong .env.runner.'; });
   child.unref();
   launches.set(worker, now());
+}
+
+function changeProfiles(value) {
+  const next = clampProfiles(value, configuredProfiles);
+  if (next === requestedProfiles) return;
+  const previous = requestedProfiles;
+  requestedProfiles = next;
+  if (next < previous) {
+    for (let index = next + 1; index <= previous; index++) {
+      launches.delete(`profile-${index}`);
+      workers.delete(`profile-${index}`);
+    }
+  } else {
+    for (let index = previous + 1; index <= next; index++) {
+      const worker = `profile-${index}`;
+      launches.delete(worker); workers.delete(worker); launch(worker);
+    }
+  }
+  log(`Đổi số profile hoạt động: ${previous} → ${next}.`);
 }
 
 async function refresh() {
@@ -127,7 +153,7 @@ async function upload() {
 
 function adapt() {
   const stats = queue.stats();
-  adaptive = controller.evaluate({ now: now(), max: Math.min(requested, maxTabs),
+  adaptive = controller.evaluate({ now: now(), max: Math.min(requested, activeMaxTabs()),
     freeMB: os.freemem() / 1024 ** 2, active: stats.active, due: stats.due,
     enabled: enabled && now() - controlAt < 60000 && now() >= cooldownUntil, outbox: stats.outbox });
 }
@@ -145,6 +171,7 @@ async function tick() {
       if (!data?.length) { enabled = false; connectedAt = 0; lastError = 'Một phiên khác đang giữ quyền chạy. Sau khi phiên đó ngừng, có thể cần chờ tối đa 5 phút.'; return; }
       enabled = data[0].enabled;
       requested = data[0].requested_concurrency;
+      changeProfiles(data[0].requested_profiles);
       connectedAt = now(); controlAt = now();
     }
     if (!connectedAt || now() - connectedAt > 60_000) return;
@@ -193,21 +220,25 @@ const server = http.createServer(async (request, response) => {
       const patch = {};
       if (typeof input.enabled === 'boolean') patch.enabled = input.enabled;
       if (Number.isInteger(input.concurrency) && input.concurrency >= 1 && input.concurrency <= 30) patch.requested_concurrency = input.concurrency;
+      if (Number.isInteger(input.profiles) && input.profiles >= 1 && input.profiles <= configuredProfiles) patch.requested_profiles = input.profiles;
       const { error } = await supabase.from('speego_runner').update(patch).eq('id', true);
       if (error) throw error;
       if (input.enabled === false) enabled = false;
+      if (patch.requested_profiles) changeProfiles(patch.requested_profiles);
       lastHeartbeat = 0;
       return reply(200, { ok: true });
     }
     if (!validWorker(input.worker)) return reply(400, { error: 'Invalid worker' });
     if (pathname === '/claim') {
+      if (!profileIsEnabled(input.worker, requestedProfiles, configuredProfiles)) return reply(200, { job: null, shutdown: true });
       workers.set(input.worker, { at: now(), version: input.version });
       const stats = status();
       if (!enabled || now() - controlAt > 60_000 || now() - lastSync > 180_000 || input.version !== '0.4.0'
-        || now() < cooldownUntil || stats.active >= stats.concurrency || stats.outbox >= maxTabs) return reply(200, { job: null, status: stats });
+        || now() < cooldownUntil || stats.active >= stats.concurrency || stats.outbox >= activeMaxTabs()) return reply(200, { job: null, status: stats });
       const localActive = queue.db.prepare('SELECT count(*) n FROM jobs WHERE worker=? AND token IS NOT NULL').get(input.worker).n;
-      const onlineProfiles = [...workers.values()].filter((w) => now() - w.at < 20000 && w.version === '0.4.0').length;
-      if (localActive >= profileLimit(stats.concurrency, now() - bootAt < 30000 ? profiles : onlineProfiles, perProfile)) return reply(200, { job: null });
+      const onlineProfiles = [...workers].filter(([id, worker]) => profileIsEnabled(id, requestedProfiles, configuredProfiles)
+        && now() - worker.at < 20000 && worker.version === '0.4.0').length;
+      if (localActive >= profileLimit(stats.concurrency, now() - bootAt < 30000 ? requestedProfiles : onlineProfiles, perProfile)) return reply(200, { job: null });
       return reply(200, { job: queue.claim(input.worker) });
     }
     if (pathname === '/result') {
@@ -231,7 +262,7 @@ const server = http.createServer(async (request, response) => {
 });
 server.on('error', (error) => { log(error.code === 'EADDRINUSE' ? 'Bộ chạy đã mở hoặc cổng đang bận.' : 'Không mở được máy chủ cục bộ.'); process.exit(1); });
 server.listen(port, '127.0.0.1', () => {
-  log(`SpeeGo runner ${VERSION}; ${profiles} profile, tối đa ${maxTabs} tab. Dữ liệu: ${dataDir}`);
+  log(`SpeeGo runner ${VERSION}; tối đa ${configuredProfiles} profile / ${configuredMaxTabs} tab. Dữ liệu: ${dataDir}`);
   // This file stays on this machine; never include it in a downloadable bundle.
   fs.writeFileSync(path.join(dataDir, 'open-dashboard.url'), `[InternetShortcut]\nURL=${origin}/#${secret}\n`);
   void tick();
@@ -239,7 +270,7 @@ server.listen(port, '127.0.0.1', () => {
 const timer = setInterval(() => {
   if (closing) return;
   // Allow already-open worker pages to reconnect after a coordinator restart.
-  if (now() - bootAt > 5000) for (let i = 1; i <= profiles; i++) {
+  if (now() - bootAt > 5000) for (let i = 1; i <= requestedProfiles; i++) {
     const worker = `profile-${i}`;
     if (!launches.has(worker) && workers.has(worker)) launches.set(worker, now());
     if (!launches.has(worker) || (workers.has(worker) && now() - workers.get(worker).at > 90_000

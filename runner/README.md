@@ -1,6 +1,6 @@
-# SpeeGo UPS Runner 0.4.3
+# SpeeGo UPS Runner 0.4.4
 
-Máy nhà: Windows, 6 nhân/12 luồng, RAM 16 GB. Mặc định 3 profile Chrome, khởi động tổng 9 tab, tối đa 10 tab/profile và 30 tab toàn máy. RAM thấp có thể khiến tải giảm ngay.
+Máy nhà: Windows, 6 nhân/12 luồng, RAM 16 GB. Có thể chọn 1–3 profile Chrome ngay trên web; mặc định 3 profile, khởi động tổng 9 tab, tối đa 10 tab/profile và 30 tab toàn máy. RAM thấp có thể khiến tải giảm ngay.
 Không có kết luận máy đạt 2.000 đơn/30 phút trước khi đo UPS thật.
 
 ## Dùng máy nhà và laptop cùng lúc
@@ -27,6 +27,7 @@ Không có kết luận máy đạt 2.000 đơn/30 phút trước khi đo UPS th
 | Laptop tắt/mất mạng | Máy nhà tiếp tục nếu còn mạng; laptop đọc lại dữ liệu khi kết nối |
 | Máy nhà mất mạng/điện hoặc Windows restart | Mạng mất: giữ outbox, ngừng nhận việc mới khi mất liên lạc quá hạn; mở lại cùng `.runner-data` tiếp tục từ SQLite và nhận lại đúng định danh coordinator. Tự khởi động yêu cầu đã cài task và đăng nhập Windows |
 | Mở thêm Runner trên laptop | Chỉ một coordinator được giữ quyền chạy cho project; nên dùng laptop để xem và điều khiển web |
+| Chọn 2 hoặc 3 profile trên web | Runner mở thêm profile ngay; khi giảm, profile thừa hoàn tất tab đang chạy rồi tự đóng |
 
 Không có hệ thống nào bảo đảm không gián đoạn do mất điện, hỏng ổ đĩa, CAPTCHA hoặc UPS thay giao diện. Không xóa `.runner-data` khi nâng cấp; đây là nơi giữ lịch và kết quả chưa gửi.
 
@@ -34,8 +35,8 @@ Không có hệ thống nào bảo đảm không gián đoạn do mất điện,
 
 1. Cài Node.js **24 LTS** và Google Chrome. Giải nén toàn bộ gói vào thư mục cố định, ví dụ `C:\SpeeGo`.
 2. Chạy `runner\start.cmd`. Điền `.env.runner` bằng URL và **service_role key của Supabase đích `skcnduuulyjeexwavbnd`**. Key chỉ ở chương trình Node trên máy nhà, không gửi vào trình duyệt. Không dùng key của project nguồn.
-3. Ba cửa sổ profile Chrome riêng sẽ mở. Trong từng profile, mở trang quản lý tiện ích → Developer mode → Load unpacked → chọn thư mục `ups-browser-extension`. Tải lại trang điều khiển; cả ba phải thấy extension **0.4.0**. Chỉ cần cài một lần/profile; không dùng profile cá nhân.
-4. Bấm **Bật tự động** ở trang điều khiển hoặc website `/tracking-ups`. Sau khi đã bật, chương trình tự tiếp tục khi mở lại. Mặc định migration để tạm dừng nhằm tránh chạy trước khi cài xong.
+3. Chọn **Số profile Chrome** trên website `/tracking-ups`. Runner mở đúng số cửa sổ riêng đã chọn. Trong từng profile, mở trang quản lý tiện ích → Developer mode → Load unpacked → chọn thư mục `ups-browser-extension`. Tải lại trang điều khiển; từng profile phải thấy extension **0.4.0**. Chỉ cần cài một lần/profile; không dùng profile cá nhân.
+4. Dán danh sách mã vào ô **Thêm mã UPS vào bảng** rồi bấm **Thêm & quét ngay**. Nếu Runner đang online, web bật máy quét và Runner nhận đơn mới trong tối đa khoảng 60 giây. Nếu không có Runner nhưng trình duyệt hiện tại đã cài extension, web tra trực tiếp tại trình duyệt đó.
 5. Cài tự khởi động, từ PowerShell ở thư mục gói:
 
 ```powershell
@@ -50,7 +51,7 @@ Task chạy khi **đăng nhập Windows**, không chạy trước màn hình đ�
 - Trên máy, mở `.runner-data\open-dashboard.url` để vào bảng điều khiển. Link có khóa cục bộ, không chia sẻ.
 - Không copy `.runner-data`, `.env.runner`, profile trình duyệt hoặc log lên Git/Vercel. Chúng có dữ liệu vận đơn và thông tin kết nối. Đặt thư mục trên tài khoản Windows riêng, chỉ người vận hành được truy cập.
 - Chương trình chỉ nghe `127.0.0.1`, kiểm tra Host, Origin và Bearer token; không mở cổng ra mạng.
-- Nhiều profile trên cùng máy dùng chung hàng đợi SQLite. Mỗi project chỉ một coordinator nhận quyền chạy; máy thứ hai chờ heartbeat máy trước hết hạn 5 phút, đủ thời gian cho lượt cũ hết hạn. Runner 0.4.3 giữ định danh trong `.runner-data`, vì vậy restart đúng bộ cài nhận lại quyền ngay; chuyển sang máy/data directory khác vẫn phải chờ. Không chạy hai bản bằng data directory khác nhau để tăng tải.
+- Nhiều profile trên cùng máy dùng chung hàng đợi SQLite. Mỗi project chỉ một coordinator nhận quyền chạy; máy thứ hai chờ heartbeat máy trước hết hạn 5 phút, đủ thời gian cho lượt cũ hết hạn. Runner 0.4.4 giữ định danh trong `.runner-data`, vì vậy restart đúng bộ cài nhận lại quyền ngay; chuyển sang máy/data directory khác vẫn phải chờ. Không chạy hai bản bằng data directory khác nhau để tăng tải.
 
 ## Hành vi
 
@@ -67,7 +68,7 @@ Task chạy khi **đăng nhập Windows**, không chạy trước màn hình đ�
 
 ## Đổi profile / tải
 
-Mặc định `.env.runner`: `SPEEGO_RUNNER_PROFILES=3`, `SPEEGO_RUNNER_TABS=10`. TABS là trần mỗi profile, không phải số tab mở ngay. Trên web đặt tổng tab tối đa 30 để cho phép tự tăng. Đổi env cần khởi động lại Runner. Chương trình tự tìm Chrome; đặt `SPEEGO_RUNNER_BROWSER` nếu Chrome ở đường dẫn khác.
+Mặc định `.env.runner`: `SPEEGO_RUNNER_PROFILES=3`, `SPEEGO_RUNNER_TABS=10`. Đây là sức chứa tối đa của bộ cài. Trên web chọn 1–3 profile cần chạy và tổng tab tối đa; không cần sửa env hoặc restart Runner. TABS là trần mỗi profile, không phải số tab mở ngay. Chương trình tự tìm Chrome; đặt `SPEEGO_RUNNER_BROWSER` nếu Chrome ở đường dẫn khác.
 
 Ba profile dùng chung hàng đợi. Profile nào trống nhận việc ngay trong hạn mức; không chia cứng số đơn. Khi một profile ngắt, các profile còn lại có thể nhận thêm nhưng không vượt trần mỗi profile/tổng.
 
