@@ -53,6 +53,7 @@ test('quick observations preserve history and changes schedule an immediate full
 test('failed reads back off without fabricating success; malformed results rejected', () => {
   const q = new Queue(':memory:'); q.sync([row()], 0); const job = q.claim('profile-1', 0);
   receive(q, job, 1000, { code: 'WRONG' }); assert.equal(JSON.parse(q.pending()[0].payload).ok, false);
+  assert.equal(q.outcome(job.token).ok, false);
   q.acknowledge(q.pending()[0], row(), 1000);
   assert.equal(q.claim('profile-1', 60_999), null); assert.ok(q.claim('profile-1', 61_000));
   assert.equal(validateResult(result(job.code, 1000, { history: null }), job.code), false); q.close();

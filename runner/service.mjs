@@ -10,6 +10,7 @@ import { Queue, mergeHistory } from './queue.mjs';
 import { AdaptiveLimit, profileLimit } from './adaptive.mjs';
 import { shouldDiscard } from './observations.mjs';
 
+const VERSION = '0.4.3';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const envFile = process.env.SPEEGO_RUNNER_ENV || path.join(root, '.env.runner');
 if (fs.existsSync(envFile)) process.loadEnvFile(envFile);
@@ -36,12 +37,18 @@ if (!browser) throw new Error('Không tìm thấy Chrome. Đặt SPEEGO_RUNNER_B
 const secretPath = path.join(dataDir, 'local-token');
 if (!fs.existsSync(secretPath)) fs.writeFileSync(secretPath, randomBytes(32).toString('hex'), { mode: 0o600 });
 const secret = fs.readFileSync(secretPath, 'utf8').trim();
-const owner = randomUUID();
+const ownerPath = path.join(dataDir, 'owner-id');
+let owner = fs.existsSync(ownerPath) ? fs.readFileSync(ownerPath, 'utf8').trim() : '';
+if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(owner)) {
+  owner = randomUUID();
+  fs.writeFileSync(ownerPath, owner, { mode: 0o600 });
+}
 const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false },
   global: { fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(15_000) }) } });
 const queue = new Queue(path.join(dataDir, 'queue.sqlite'), { stopDelivered: process.env.SPEEGO_RUNNER_STOP_DELIVERED === 'true' });
 let enabled = false, connectedAt = 0, controlAt = 0, lastSync = 0, lastHeartbeat = 0, busy = false, closing = false;
-const controller = new AdaptiveLimit(maxTabs);
+// Apply the hard memory ceiling before an already-open worker can reconnect and claim work.
+const controller = new AdaptiveLimit(maxTabs, Date.now(), os.freemem() / 1024 ** 2);
 let requested = 30, adaptive = controller.limit, cooldownUntil = queue.setting('cooldownUntil') || 0;
 let lastError = '', lastOutbox = 0;
 const bootAt = Date.now();
@@ -61,7 +68,7 @@ const status = () => ({ ...queue.stats(), enabled, connected: now() - connectedA
   freeMemoryMB: Math.round(os.freemem() / 1024 ** 2),
   cooldownUntil, lastError, lastSync: lastSync ? new Date(lastSync).toISOString() : null,
   workers: [...workers].map(([id, w]) => ({ id, online: now() - w.at < 20_000, extension: w.version })),
-  uptimeSeconds: Math.round(process.uptime()), version: '0.4.2', adaptationReason: controller.reason, profiles, perProfile });
+  uptimeSeconds: Math.round(process.uptime()), version: VERSION, adaptationReason: controller.reason, profiles, perProfile });
 
 function launch(worker) {
   const profileDir = path.join(dataDir, 'profiles', worker);
@@ -207,8 +214,9 @@ const server = http.createServer(async (request, response) => {
       const duplicate = queue.db.prepare('SELECT 1 FROM outbox WHERE token=?').get(String(input.token || ''));
       const accepted = queue.receive(input.worker, input.token, input.result);
       if (accepted && !duplicate) {
-        controller.record(input.result?.ok === true);
-        if (/xác minh|chặn truy cập|access denied|verify.*human|unusual traffic/i.test(input.result?.error || '')) {
+        const outcome = queue.outcome(input.token);
+        controller.record(outcome?.ok === true);
+        if (/xác minh|chặn truy cập|access denied|verify.*human|unusual traffic/i.test(outcome?.error || '')) {
           cooldownUntil = now() + 30 * 60_000;
           queue.setting('cooldownUntil', cooldownUntil);
           adaptive = controller.limit = 1;
@@ -223,7 +231,7 @@ const server = http.createServer(async (request, response) => {
 });
 server.on('error', (error) => { log(error.code === 'EADDRINUSE' ? 'Bộ chạy đã mở hoặc cổng đang bận.' : 'Không mở được máy chủ cục bộ.'); process.exit(1); });
 server.listen(port, '127.0.0.1', () => {
-  log(`SpeeGo runner 0.4.2; ${profiles} profile, tối đa ${maxTabs} tab. Dữ liệu: ${dataDir}`);
+  log(`SpeeGo runner ${VERSION}; ${profiles} profile, tối đa ${maxTabs} tab. Dữ liệu: ${dataDir}`);
   // This file stays on this machine; never include it in a downloadable bundle.
   fs.writeFileSync(path.join(dataDir, 'open-dashboard.url'), `[InternetShortcut]\nURL=${origin}/#${secret}\n`);
   void tick();

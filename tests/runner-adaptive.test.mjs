@@ -12,6 +12,8 @@ function window(c, successes = 40, failures = 0, extra = {}) {
 }
 test('starts at nine, three per profile; a disconnected profile releases capacity', () => {
   assert.equal(new AdaptiveLimit(30, 0).limit, 9);
+  assert.equal(new AdaptiveLimit(30, 0, 900).limit, 1);
+  assert.equal(new AdaptiveLimit(30, 0, 1800).limit, 3);
   assert.equal(profileLimit(9, 3, 10), 3);
   assert.equal(profileLimit(9, 2, 10), 5);
   assert.equal(profileLimit(30, 2, 10), 10);
@@ -39,8 +41,15 @@ test('memory protection acts without samples and errors halve the limit', () => 
   assert.equal(c.evaluate({ now: 2, max: 30, freeMB: 900 }), 1);
   assert.equal(window(new AdaptiveLimit(30, 0), 20, 10), 4);
 });
-test('remote ceiling is respected and an interrupted probe is discarded', () => {
+test('remote ceiling is respected and an interrupted probe waits for the next saturated window', () => {
   const c = new AdaptiveLimit(30, 0);
-  window(c); window(c, 40, 0, { enabled: false }); assert.equal(c.probe, null);
-  window(c, 40, 0, { max: 5 }); assert.equal(c.limit, 5);
+  window(c); window(c, 40, 0, { enabled: false }); assert.ok(c.probe);
+  assert.equal(window(c), 9);
+  window(c, 40, 0, { max: 5 }); assert.equal(c.limit, 5); assert.equal(c.probe, null);
+});
+
+test('one-tab saturation requires an active job instead of merely a due queue', () => {
+  const c = new AdaptiveLimit(1, 0);
+  window(c, 40, 0, { max: 30, active: 0 });
+  assert.equal(c.limit, 1);
 });

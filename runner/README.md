@@ -1,4 +1,4 @@
-# SpeeGo UPS Runner 0.4.2
+# SpeeGo UPS Runner 0.4.3
 
 Máy nhà: Windows, 6 nhân/12 luồng, RAM 16 GB. Mặc định 3 profile Chrome, khởi động tổng 9 tab, tối đa 10 tab/profile và 30 tab toàn máy. RAM thấp có thể khiến tải giảm ngay.
 Không có kết luận máy đạt 2.000 đơn/30 phút trước khi đo UPS thật.
@@ -25,7 +25,7 @@ Không có kết luận máy đạt 2.000 đơn/30 phút trước khi đo UPS th
 | Lỗi cũ về sau một kết quả thành công mới | Không ghi lỗi cũ đè lên kết quả mới |
 | Làm mới danh sách khi đang đọc nhanh | Giữ nguyên thông tin của lượt đã nhận, không đổi nhầm chế độ đọc |
 | Laptop tắt/mất mạng | Máy nhà tiếp tục nếu còn mạng; laptop đọc lại dữ liệu khi kết nối |
-| Máy nhà mất mạng/điện hoặc Windows restart | Mạng mất: giữ outbox, ngừng nhận việc mới khi mất liên lạc quá hạn; mở lại tiếp tục từ SQLite. Tự khởi động yêu cầu đã cài task và đăng nhập Windows |
+| Máy nhà mất mạng/điện hoặc Windows restart | Mạng mất: giữ outbox, ngừng nhận việc mới khi mất liên lạc quá hạn; mở lại cùng `.runner-data` tiếp tục từ SQLite và nhận lại đúng định danh coordinator. Tự khởi động yêu cầu đã cài task và đăng nhập Windows |
 | Mở thêm Runner trên laptop | Chỉ một coordinator được giữ quyền chạy cho project; nên dùng laptop để xem và điều khiển web |
 
 Không có hệ thống nào bảo đảm không gián đoạn do mất điện, hỏng ổ đĩa, CAPTCHA hoặc UPS thay giao diện. Không xóa `.runner-data` khi nâng cấp; đây là nơi giữ lịch và kết quả chưa gửi.
@@ -50,12 +50,12 @@ Task chạy khi **đăng nhập Windows**, không chạy trước màn hình đ�
 - Trên máy, mở `.runner-data\open-dashboard.url` để vào bảng điều khiển. Link có khóa cục bộ, không chia sẻ.
 - Không copy `.runner-data`, `.env.runner`, profile trình duyệt hoặc log lên Git/Vercel. Chúng có dữ liệu vận đơn và thông tin kết nối. Đặt thư mục trên tài khoản Windows riêng, chỉ người vận hành được truy cập.
 - Chương trình chỉ nghe `127.0.0.1`, kiểm tra Host, Origin và Bearer token; không mở cổng ra mạng.
-- Nhiều profile trên cùng máy dùng chung hàng đợi SQLite. Mỗi project chỉ một coordinator nhận quyền chạy; máy thứ hai chờ heartbeat máy trước hết hạn 5 phút, đủ thời gian cho lượt cũ hết hạn. Khởi động lại đột ngột cũng có thể phải chờ khoảng này. Không chạy hai bản bằng data directory khác nhau để tăng tải.
+- Nhiều profile trên cùng máy dùng chung hàng đợi SQLite. Mỗi project chỉ một coordinator nhận quyền chạy; máy thứ hai chờ heartbeat máy trước hết hạn 5 phút, đủ thời gian cho lượt cũ hết hạn. Runner 0.4.3 giữ định danh trong `.runner-data`, vì vậy restart đúng bộ cài nhận lại quyền ngay; chuyển sang máy/data directory khác vẫn phải chờ. Không chạy hai bản bằng data directory khác nhau để tăng tải.
 
 ## Hành vi
 
 - Không chờ cả lô. Tab hoàn tất sẽ nhường chỗ cho mã tiếp theo. Tổng tải khởi động 9, giới hạn 30; mỗi profile có giới hạn riêng trong env.
-- Profile mới chưa bao giờ kết nối không bị mở lặp vô hạn. Profile đã kết nối rồi ngắt được thử mở lại sau ít nhất 3 phút. Nếu cần cài lại extension, vào đúng profile để xử lý.
+- Profile mới chưa bao giờ kết nối không bị mở lặp vô hạn. Profile đã kết nối rồi ngắt được thử mở lại sau khi ngoại tuyến khoảng 90 giây và lần mở trước cách ít nhất 3 phút. Nếu cần cài lại extension, vào đúng profile để xử lý.
 - Mỗi đơn tra lại 30 phút sau khi lưu thành công. Lần đầu bộ chạy gặp đơn: lấy đầy đủ lịch sử; tiếp theo đọc nhanh trạng thái/EDD/sự kiện hiện tại hiển thị. Nếu thông tin thay đổi, lịch sử đầy đủ được xếp lượt tiếp theo. Đối soát đầy đủ ít nhất mỗi 6 giờ khi hàng đợi theo kịp.
 - Sự kiện không hiển thị trong phần tóm tắt chỉ được phát hiện khi đọc đầy đủ. Không coi trạng thái không đổi là lịch sử không đổi.
 - Không xóa lịch sử cũ khi đọc nhanh; lịch sử đầy đủ được gộp, không cắt bỏ dữ liệu đã lưu ở Supabase. UI hiện hiển thị tối đa 100 sự kiện/đơn.
@@ -79,7 +79,7 @@ RAM trống dưới 1 GB: hạ về 1 tab ngay; dưới 2 GB: hạ tối đa 3 t
 
 ## Dữ liệu và chẩn đoán
 
-`.runner-data\queue.sqlite` là lịch, công việc đang làm, outbox và số đo 7 ngày. `runner.log` xoay vòng ở 5 MB, không ghi key hay thông tin khách hàng. Giữ nguyên thư mục này khi nâng cấp; không xóa để khắc phục lỗi mạng.
+`.runner-data\queue.sqlite` là lịch, công việc đang làm, outbox và số đo 7 ngày; `owner-id` giữ định danh coordinator qua restart. `runner.log` xoay vòng ở 5 MB, không ghi key hoặc thông tin khách hàng. Giữ nguyên cả thư mục này khi nâng cấp; không xóa để khắc phục lỗi mạng.
 
 Nếu muốn dừng hẳn: tạm dừng trên web, chờ số tab và chờ lưu về 0, đóng chương trình. Gỡ tự khởi động bằng `runner\remove-startup.ps1`. Việc tắt chương trình không xóa dữ liệu.
 

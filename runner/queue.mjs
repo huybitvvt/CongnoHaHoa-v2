@@ -117,6 +117,11 @@ export class Queue {
     return this.db.prepare(`SELECT o.*, j.snapshot,j.code,j.fingerprint,j.full_at,j.failures,j.delivered_count
       FROM outbox o JOIN jobs j ON j.id=o.job_id ORDER BY o.rowid LIMIT 100`).all();
   }
+  outcome(token) {
+    const row = this.db.prepare('SELECT payload FROM outbox WHERE token=?').get(token);
+    if (!row) return null;
+    try { return JSON.parse(row.payload); } catch { return { ok: false, error: 'Kết quả trong outbox không hợp lệ' }; }
+  }
   discard(item, current, now = Date.now()) {
     // A deleted/reassigned shipment or a newer observation must not advance the old job's success state.
     this.transaction(() => {

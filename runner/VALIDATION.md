@@ -1,5 +1,22 @@
 # Kiểm chứng ngày 10/09/2026
 
+## Bổ sung Runner 0.4.3
+
+Đo lại bằng Google Chrome 152 trên máy test Intel Core i3-1215U, 6 nhân/8 luồng, RAM 7,69 GB. Đây không phải máy nhà 6 nhân/12 luồng, RAM 16 GB. RAM trống thấp nên bộ điều phối áp trần 1 tab ngay từ lúc khởi động; không thử ép 9–30 tab.
+
+| Chế độ, 1 tab | Kết quả | Tốc độ chuỗi | Thời gian từng lượt | Trễ từ nhận kết quả đến Supabase xác nhận |
+|---|---:|---:|---:|---:|
+| Đọc nhanh | 8/8 thành công | 10,30 đơn/phút | trung bình 4,53 giây; 3,07–6,30 giây | trung bình 1,36 giây; p95 2,26 giây |
+| Đọc đầy đủ | 8/8 thành công | 6,11 đơn/phút | trung bình 8,34 giây; 7,34–9,51 giây | trung bình 1,48 giây; p95 2,50 giây |
+
+Trong cửa sổ đo nhanh, toàn bộ tiến trình Chrome/Node trên máy dùng CPU trung bình 18,6%, đỉnh 63%; RAM trống thấp nhất 248 MB, working set cao nhất 2.318 MB. Cửa sổ đầy đủ: CPU trung bình 16,9%, đỉnh 67%; RAM trống thấp nhất 336 MB, working set cao nhất 2.406 MB. Các số CPU/RAM gồm toàn bộ Chrome/Node trên máy test, không phải phép cô lập riêng một tab. Không có lỗi, timeout hoặc trang xác minh UPS trong hai mẫu chuẩn 8 + 8.
+
+Trong lúc runner đang quét, đồng bộ thật chỉ đọc bảng `orders` nguồn và thêm 13 đơn UPS tháng 9 mới vào đích. Hàng đợi tự tăng 54 → 67 sau lượt làm mới, không restart; đối chiếu sau đó cho thấy đủ 39/39 đơn nguồn và không còn đơn nguồn bị thiếu ở đích. Cả 39 dòng đều giữ đủ name, phone, address, delivery staff, amount, unit price và currency khi nguồn có dữ liệu. Schema nguồn thực tế không có cột email nên email của 39 dòng này là `null`; không tự suy đoán dữ liệu. Đóng profile-1 đang rảnh: profile-2 tiếp tục chạy, supervisor mở lại profile-1 sau khoảng 97 giây và extension 0.4.0 tự kết nối.
+
+Restart bản cũ tái hiện thời gian chờ lease gần 5 phút. Runner 0.4.3 lưu `owner-id` trong `.runner-data`: restart cùng bộ cài nhận lại quyền ngay, còn data directory/máy khác vẫn chờ lease. Thử dừng coordinator khi một lượt UPS đang chạy: profile giữ 1 kết quả trong localStorage; sau restart kết quả được nhận và gửi, localStorage và SQLite outbox đều về 0.
+
+Công cụ benchmark đã sửa hai lỗi phát hiện trong lần đo: quick trước đây có thể bị chạy thành full khi `full_at` quá cũ, và trần điều khiển bị để lại ở 1 sau phép thử. Công cụ hiện ép đúng chế độ, khôi phục trần cũ và ghi thêm tốc độ thành công cùng độ trễ upload. Toàn bộ 70 test tự động, lint và production build đã qua sau thay đổi.
+
 ## Bổ sung Runner 0.4.2
 
 Kiểm thử tự tăng từ 9 đến 30 khi thông lượng tăng, quay lui khi tốc độ không cải thiện, giữ tải khi thiếu mẫu/thiếu việc/tạm dừng/chờ gửi, giảm khi RAM thấp/lỗi cao, và trần từng profile. Mô phỏng 2.000 đơn qua 30 vị trí trên 3 profile không mất hoặc trùng lease; đây là kiểm thử hàng đợi, không phải phép đo tốc độ UPS. Build và lint được kiểm tra khi phát hành.
