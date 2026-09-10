@@ -7,6 +7,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 import { Queue, mergeHistory } from './queue.mjs';
+import { AdaptiveLimit, profileLimit } from './adaptive.mjs';
 import { shouldDiscard } from './observations.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,15 +23,16 @@ fs.mkdirSync(dataDir, { recursive: true });
 const port = Number(process.env.SPEEGO_RUNNER_PORT || 4317);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('SPEEGO_RUNNER_PORT phải là số từ 1024 đến 65535.');
 const origin = `http://127.0.0.1:${port}`;
-const profiles = Math.max(1, Math.min(4, Number(process.env.SPEEGO_RUNNER_PROFILES || 1)));
-const perProfile = Math.max(1, Math.min(12, Number(process.env.SPEEGO_RUNNER_TABS || 6)));
+const profiles = Math.max(1, Math.min(4, Number(process.env.SPEEGO_RUNNER_PROFILES || 3)));
+const perProfile = Math.max(1, Math.min(10, Number(process.env.SPEEGO_RUNNER_TABS || 10)));
 if (!Number.isInteger(profiles) || !Number.isInteger(perProfile)) throw new Error('Số profile/tab phải là số nguyên.');
-const maxTabs = Math.min(12, profiles * perProfile);
+const maxTabs = Math.min(30, profiles * perProfile);
 const browser = process.env.SPEEGO_RUNNER_BROWSER || [
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+  path.join(process.env.LOCALAPPDATA || '', 'Google/Chrome/Application/chrome.exe'),
 ].find((file) => fs.existsSync(file));
-if (!browser) throw new Error('Không tìm thấy Chrome/Edge. Đặt SPEEGO_RUNNER_BROWSER.');
+if (!browser) throw new Error('Không tìm thấy Chrome. Đặt SPEEGO_RUNNER_BROWSER.');
 const secretPath = path.join(dataDir, 'local-token');
 if (!fs.existsSync(secretPath)) fs.writeFileSync(secretPath, randomBytes(32).toString('hex'), { mode: 0o600 });
 const secret = fs.readFileSync(secretPath, 'utf8').trim();
@@ -39,8 +41,9 @@ const supabase = createClient(url, key, { auth: { persistSession: false, autoRef
   global: { fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(15_000) }) } });
 const queue = new Queue(path.join(dataDir, 'queue.sqlite'), { stopDelivered: process.env.SPEEGO_RUNNER_STOP_DELIVERED === 'true' });
 let enabled = false, connectedAt = 0, controlAt = 0, lastSync = 0, lastHeartbeat = 0, busy = false, closing = false;
-let requested = 6, adaptive = Math.min(6, maxTabs), cooldownUntil = queue.setting('cooldownUntil') || 0;
-let lastError = '', lastAdapt = Date.now(), completions = [], lastOutbox = 0;
+const controller = new AdaptiveLimit(maxTabs);
+let requested = 30, adaptive = controller.limit, cooldownUntil = queue.setting('cooldownUntil') || 0;
+let lastError = '', lastOutbox = 0;
 const bootAt = Date.now();
 const workers = new Map();
 const launches = new Map();
@@ -58,7 +61,7 @@ const status = () => ({ ...queue.stats(), enabled, connected: now() - connectedA
   freeMemoryMB: Math.round(os.freemem() / 1024 ** 2),
   cooldownUntil, lastError, lastSync: lastSync ? new Date(lastSync).toISOString() : null,
   workers: [...workers].map(([id, w]) => ({ id, online: now() - w.at < 20_000, extension: w.version })),
-  uptimeSeconds: Math.round(process.uptime()), version: '0.4.1' });
+  uptimeSeconds: Math.round(process.uptime()), version: '0.4.2', adaptationReason: controller.reason, profiles, perProfile });
 
 function launch(worker) {
   const profileDir = path.join(dataDir, 'profiles', worker);
@@ -116,18 +119,10 @@ async function upload() {
 }
 
 function adapt() {
-  // Memory protection does not wait for ten samples: protect a busy small machine immediately.
-  if (os.freemem() < 1024 ** 3) adaptive = 1;
-  if (now() - lastAdapt < 60_000) return;
-  const recent = completions.filter((r) => now() - r.at < 120_000);
-  if (recent.length >= 10) {
-    const failures = recent.filter((r) => !r.ok).length / recent.length;
-    const memoryLow = os.freemem() < 2 * 1024 ** 3;
-    if (failures > 0.15 || memoryLow) adaptive = Math.max(1, Math.floor(adaptive / 2));
-    else if (failures < 0.05 && !memoryLow) adaptive = Math.min(requested, maxTabs, adaptive + 1);
-  }
-  completions = recent;
-  lastAdapt = now();
+  const stats = queue.stats();
+  adaptive = controller.evaluate({ now: now(), max: Math.min(requested, maxTabs),
+    freeMB: os.freemem() / 1024 ** 2, active: stats.active, due: stats.due,
+    enabled: enabled && now() - controlAt < 60000 && now() >= cooldownUntil, outbox: stats.outbox });
 }
 
 async function tick() {
@@ -149,7 +144,6 @@ async function tick() {
     if (now() - lastSync > 60_000) await refresh();
     if (now() - lastOutbox > 1000) { await upload(); lastOutbox = now(); }
     lastError = '';
-    adapt();
   } catch (error) {
     const message = String(error.message || error).slice(0, 400);
     if (lastError !== message) log(message);
@@ -191,7 +185,7 @@ const server = http.createServer(async (request, response) => {
     if (pathname === '/control') {
       const patch = {};
       if (typeof input.enabled === 'boolean') patch.enabled = input.enabled;
-      if (Number.isInteger(input.concurrency) && input.concurrency >= 1 && input.concurrency <= 12) patch.requested_concurrency = input.concurrency;
+      if (Number.isInteger(input.concurrency) && input.concurrency >= 1 && input.concurrency <= 30) patch.requested_concurrency = input.concurrency;
       const { error } = await supabase.from('speego_runner').update(patch).eq('id', true);
       if (error) throw error;
       if (input.enabled === false) enabled = false;
@@ -205,18 +199,20 @@ const server = http.createServer(async (request, response) => {
       if (!enabled || now() - controlAt > 60_000 || now() - lastSync > 180_000 || input.version !== '0.4.0'
         || now() < cooldownUntil || stats.active >= stats.concurrency || stats.outbox >= maxTabs) return reply(200, { job: null, status: stats });
       const localActive = queue.db.prepare('SELECT count(*) n FROM jobs WHERE worker=? AND token IS NOT NULL').get(input.worker).n;
-      if (localActive >= perProfile) return reply(200, { job: null });
+      const onlineProfiles = [...workers.values()].filter((w) => now() - w.at < 20000 && w.version === '0.4.0').length;
+      if (localActive >= profileLimit(stats.concurrency, now() - bootAt < 30000 ? profiles : onlineProfiles, perProfile)) return reply(200, { job: null });
       return reply(200, { job: queue.claim(input.worker) });
     }
     if (pathname === '/result') {
       const duplicate = queue.db.prepare('SELECT 1 FROM outbox WHERE token=?').get(String(input.token || ''));
       const accepted = queue.receive(input.worker, input.token, input.result);
       if (accepted && !duplicate) {
-        completions.push({ at: now(), ok: input.result?.ok === true });
+        controller.record(input.result?.ok === true);
         if (/xác minh|chặn truy cập|access denied|verify.*human|unusual traffic/i.test(input.result?.error || '')) {
           cooldownUntil = now() + 30 * 60_000;
           queue.setting('cooldownUntil', cooldownUntil);
-          adaptive = 1;
+          adaptive = controller.limit = 1;
+          controller.probe = null; controller.reset(now());
           log('UPS yêu cầu xác minh: nghỉ toàn bộ 30 phút, giảm tải về 1 tab.');
         }
       }
@@ -227,7 +223,7 @@ const server = http.createServer(async (request, response) => {
 });
 server.on('error', (error) => { log(error.code === 'EADDRINUSE' ? 'Bộ chạy đã mở hoặc cổng đang bận.' : 'Không mở được máy chủ cục bộ.'); process.exit(1); });
 server.listen(port, '127.0.0.1', () => {
-  log(`SpeeGo runner 0.4.1; ${profiles} profile, tối đa ${maxTabs} tab. Dữ liệu: ${dataDir}`);
+  log(`SpeeGo runner 0.4.2; ${profiles} profile, tối đa ${maxTabs} tab. Dữ liệu: ${dataDir}`);
   // This file stays on this machine; never include it in a downloadable bundle.
   fs.writeFileSync(path.join(dataDir, 'open-dashboard.url'), `[InternetShortcut]\nURL=${origin}/#${secret}\n`);
   void tick();

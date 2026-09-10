@@ -1,5 +1,13 @@
 # Kiểm chứng ngày 10/09/2026
 
+## Bổ sung Runner 0.4.2
+
+Kiểm thử tự tăng từ 9 đến 30 khi thông lượng tăng, quay lui khi tốc độ không cải thiện, giữ tải khi thiếu mẫu/thiếu việc/tạm dừng/chờ gửi, giảm khi RAM thấp/lỗi cao, và trần từng profile. Mô phỏng 2.000 đơn qua 30 vị trí trên 3 profile không mất hoặc trùng lease; đây là kiểm thử hàng đợi, không phải phép đo tốc độ UPS. Build và lint được kiểm tra khi phát hành.
+
+Chrome thông thường yêu cầu cài extension bằng Load unpacked một lần trong từng profile. Không dùng phép đo Edge cũ để cam kết tốc độ Chrome 30 tab hoặc độ ổn định máy nhà 24 giờ.
+
+Smoke test Chrome trên máy phát triển: mở được profile-1, profile-2, profile-3; kết nối Supabase đích, cấu hình 3 × 10, trần 30. RAM trống đo được 355 MB nên giới hạn tự hạ về 1. Runner giữ tạm dừng; không tra UPS trong phép thử này. Đã đóng các profile thử. Tổng 69 kiểm thử qua.
+
 ## Bổ sung Runner 0.4.1
 
 62 test tự động đã qua, gồm 7 kiểm thử mới: tăng 100 → 200 → 400 trong lúc tra, làm mới giữa lượt đọc nhanh, đổi mã khi rảnh/đang chạy, xóa khi đang chạy, kết quả lỗi đến muộn, và thứ tự ưu tiên khi liên tục thêm mã. Migration đích kiểm tra việc lưu trữ quan sát mã cũ và giữ trường thu tiền bằng subtransaction tự rollback; không giữ lại đơn thử. Các số đo UPS thật bên dưới thuộc 0.4.0; lần gia cố này không đo lại tốc độ UPS.

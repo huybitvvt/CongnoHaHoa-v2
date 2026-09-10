@@ -66,11 +66,11 @@ test('deleted records stop being scheduled; duplicate result delivery is idempot
   assert.equal(q.claim('profile-1', INTERVAL * 2), null); q.close();
 });
 
-test('2000 jobs drain across six slots without loss, duplicate leases, or an unbounded outbox', () => {
+for (const slotCount of [6, 30]) test(`2000 jobs drain across ${slotCount} slots without loss, duplicate leases, or an unbounded outbox`, () => {
   const q = new Queue(':memory:');
   let time = 1_800_000_000_000;
   q.sync(Array.from({ length: 2000 }, (_, i) => row(String(i))), time);
-  const slots = Array.from({ length: 6 }, (_, i) => ({ worker: `profile-${i % 2 + 1}`, job: null }));
+  const slots = Array.from({ length: slotCount }, (_, i) => ({ worker: `profile-${i % 3 + 1}`, job: null }));
   let completed = 0;
   while (completed < 2000) {
     for (const slot of slots) if (!slot.job) slot.job = q.claim(slot.worker, time);

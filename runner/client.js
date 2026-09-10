@@ -69,6 +69,7 @@
       document.getElementById('connection').textContent = !s.connected ? 'Chưa kết nối Supabase / đang chờ quyền chạy'
         : s.cooldownUntil > Date.now() ? 'Đang nghỉ do UPS yêu cầu xác minh' : s.enabled ? 'Tự động đang bật' : 'Đã tạm dừng';
       document.getElementById('error').textContent = s.lastError;
+      if (document.activeElement.id !== 'concurrency') document.getElementById('concurrency').value = s.requestedConcurrency;
       const metrics = [['Tổng đơn', s.total], ['Đến hạn', s.due], ['Đang xử lý', s.active], ['Tab cho phép', s.concurrency],
         ['Chờ gửi Supabase', s.outbox], ['Thành công / phút (15p)', s.successfulPerMinute], ['Lỗi trong 15p', s.failed], ['95% lượt dưới (giây)', s.p95Seconds]];
       const nodes = metrics.map(([label, value]) => {

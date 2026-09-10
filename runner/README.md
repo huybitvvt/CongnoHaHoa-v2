@@ -1,6 +1,6 @@
-# SpeeGo UPS Runner 0.4.1
+# SpeeGo UPS Runner 0.4.2
 
-Máy nhà đề xuất: Windows, 6 nhân/12 luồng, RAM 16 GB. Bắt đầu 1 profile × 6 tab.
+Máy nhà: Windows, 6 nhân/12 luồng, RAM 16 GB. Mặc định 3 profile Chrome, khởi động tổng 9 tab, tối đa 10 tab/profile và 30 tab toàn máy. RAM thấp có thể khiến tải giảm ngay.
 Không có kết luận máy đạt 2.000 đơn/30 phút trước khi đo UPS thật.
 
 ## Dùng máy nhà và laptop cùng lúc
@@ -32,9 +32,9 @@ Không có hệ thống nào bảo đảm không gián đoạn do mất điện,
 
 ## Cài lần đầu
 
-1. Cài Node.js **24 LTS** và Edge hoặc Chrome. Giải nén toàn bộ gói vào thư mục cố định, ví dụ `C:\SpeeGo`.
+1. Cài Node.js **24 LTS** và Google Chrome. Giải nén toàn bộ gói vào thư mục cố định, ví dụ `C:\SpeeGo`.
 2. Chạy `runner\start.cmd`. Điền `.env.runner` bằng URL và **service_role key của Supabase đích `skcnduuulyjeexwavbnd`**. Key chỉ ở chương trình Node trên máy nhà, không gửi vào trình duyệt. Không dùng key của project nguồn.
-3. Cửa sổ profile riêng sẽ mở. Edge có thể tải tiện ích qua launcher. Nếu báo chưa kết nối, mở trang quản lý tiện ích của chính profile đó → Developer mode → Load unpacked → chọn thư mục `ups-browser-extension`. Chrome có thể yêu cầu thao tác này. Tải lại trang điều khiển; phải thấy extension **0.4.0**.
+3. Ba cửa sổ profile Chrome riêng sẽ mở. Trong từng profile, mở trang quản lý tiện ích → Developer mode → Load unpacked → chọn thư mục `ups-browser-extension`. Tải lại trang điều khiển; cả ba phải thấy extension **0.4.0**. Chỉ cần cài một lần/profile; không dùng profile cá nhân.
 4. Bấm **Bật tự động** ở trang điều khiển hoặc website `/tracking-ups`. Sau khi đã bật, chương trình tự tiếp tục khi mở lại. Mặc định migration để tạm dừng nhằm tránh chạy trước khi cài xong.
 5. Cài tự khởi động, từ PowerShell ở thư mục gói:
 
@@ -54,7 +54,7 @@ Task chạy khi **đăng nhập Windows**, không chạy trước màn hình đ�
 
 ## Hành vi
 
-- Không chờ cả lô. Tab hoàn tất sẽ nhường chỗ cho mã tiếp theo. Tổng tải mặc định 6, giới hạn 12; mỗi profile có giới hạn riêng trong env.
+- Không chờ cả lô. Tab hoàn tất sẽ nhường chỗ cho mã tiếp theo. Tổng tải khởi động 9, giới hạn 30; mỗi profile có giới hạn riêng trong env.
 - Profile mới chưa bao giờ kết nối không bị mở lặp vô hạn. Profile đã kết nối rồi ngắt được thử mở lại sau ít nhất 3 phút. Nếu cần cài lại extension, vào đúng profile để xử lý.
 - Mỗi đơn tra lại 30 phút sau khi lưu thành công. Lần đầu bộ chạy gặp đơn: lấy đầy đủ lịch sử; tiếp theo đọc nhanh trạng thái/EDD/sự kiện hiện tại hiển thị. Nếu thông tin thay đổi, lịch sử đầy đủ được xếp lượt tiếp theo. Đối soát đầy đủ ít nhất mỗi 6 giờ khi hàng đợi theo kịp.
 - Sự kiện không hiển thị trong phần tóm tắt chỉ được phát hiện khi đọc đầy đủ. Không coi trạng thái không đổi là lịch sử không đổi.
@@ -67,9 +67,15 @@ Task chạy khi **đăng nhập Windows**, không chạy trước màn hình đ�
 
 ## Đổi profile / tải
 
-Sửa `.env.runner`, dừng chương trình rồi mở lại. Ví dụ 2 profile, mỗi profile 4 tab: `SPEEGO_RUNNER_PROFILES=2`, `SPEEGO_RUNNER_TABS=4`; trên web đặt tối đa 8. Mỗi profile phải thấy extension 0.4.0. Chỉ tạo profile dành riêng SpeeGo, không dùng profile cá nhân.
+Mặc định `.env.runner`: `SPEEGO_RUNNER_PROFILES=3`, `SPEEGO_RUNNER_TABS=10`. TABS là trần mỗi profile, không phải số tab mở ngay. Trên web đặt tổng tab tối đa 30 để cho phép tự tăng. Đổi env cần khởi động lại Runner. Chương trình tự tìm Chrome; đặt `SPEEGO_RUNNER_BROWSER` nếu Chrome ở đường dẫn khác.
 
-Tự điều chỉnh tải: RAM trống dưới 1 GB thì hạ về 1 tab ngay, không chờ đủ mẫu. Mỗi phút, sau ít nhất 10 kết quả trong 2 phút gần nhất, giảm một nửa nếu lỗi >15% hoặc RAM trống <2 GB; tăng một tab nếu lỗi <5%, không vượt cấu hình. Đây là điều chỉnh theo lỗi/RAM, không phải cam kết tìm được tốc độ tối ưu. So sánh 6 → 8 → 12 bằng đơn thành công/phút và tỷ lệ lỗi, không bằng số tab mở.
+Ba profile dùng chung hàng đợi. Profile nào trống nhận việc ngay trong hạn mức; không chia cứng số đơn. Khi một profile ngắt, các profile còn lại có thể nhận thêm nhưng không vượt trần mỗi profile/tổng.
+
+Tự điều chỉnh: đánh giá mỗi 30 giây bằng cửa sổ mẫu riêng. Có ít nhất 20 kết quả, lỗi dưới 5%, RAM trống ít nhất 3 GB, đủ việc và đủ tải trong ít nhất 70% lần quan sát thì thử tăng 3 tab: 9 → 12 → 15… → 30. Không tăng khi tạm dừng, mất liên lạc điều khiển hoặc có kết quả chờ gửi. Nếu cửa sổ đủ tải sau khi tăng không cải thiện tốc độ ít nhất 5%, quay về mức trước và chờ 5 phút mới thử lại.
+
+RAM trống dưới 1 GB: hạ về 1 tab ngay; dưới 2 GB: hạ tối đa 3 tab. Có ít nhất 10 kết quả và lỗi trên 15%: giảm một nửa. Sau giảm tải chờ ít nhất 2 phút trước khi tăng. Tab đang chạy được hoàn tất, không hủy kết quả để giảm tải.
+
+Đây là phép thử thích nghi, không bảo đảm tối ưu tuyệt đối: độ khó từng đơn có thể ảnh hưởng phép so sánh. Chưa đo 30 tab UPS thật hoặc 24 giờ trên máy nhà 16 GB.
 
 ## Dữ liệu và chẩn đoán
 

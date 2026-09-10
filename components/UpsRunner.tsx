@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 type Runner = {
   enabled: boolean; requested_concurrency: number; heartbeat_at: string | null; machine_name: string | null;
   stats: { total?: number; due?: number; active?: number; outbox?: number; successfulPerMinute?: number;
-    failed?: number; p95Seconds?: number; concurrency?: number; cooldownUntil?: number; lastError?: string;
+    failed?: number; p95Seconds?: number; concurrency?: number; cooldownUntil?: number; lastError?: string; adaptationReason?: string;
     workers?: { id: string; online: boolean; extension: string }[] };
 };
 
@@ -55,12 +55,13 @@ export function UpsRunner({ onBusy, manualRunning }: { onBusy: (busy: boolean) =
     </div>
     <div className="ups-actions"><button className="primary-button" disabled={!runner || updating || manualRunning}
       onClick={() => void control({ enabled: !runner?.enabled })}>{runner?.enabled ? "Tạm dừng tự động" : "Bật tự động"}</button>
-      <label>Tổng tab tối đa <select aria-label="Tổng tab UPS tối đa" value={runner?.requested_concurrency ?? 6} disabled={!runner || updating}
+      <label>Tổng tab tối đa <select aria-label="Tổng tab UPS tối đa" value={runner?.requested_concurrency ?? 30} disabled={!runner || updating}
         onChange={(event) => void control({ requested_concurrency: Number(event.target.value) })}>
-        {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
+        {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
       </select></label>
       <small>Mỗi đơn tra lại sau 30 phút · Tạm dừng vẫn lưu các lượt đang chạy</small>
     </div>
+    {stats?.adaptationReason && <p>{stats.adaptationReason}</p>}
     {stats?.workers && <p>{stats.workers.map((w) => `${w.id}: ${w.online && w.extension === "0.4.0" ? "sẵn sàng" : "chưa sẵn sàng"}`).join(" · ")}</p>}
     {Boolean(stats?.cooldownUntil && stats.cooldownUntil > clock) && <p role="status">UPS yêu cầu xác minh. Đang nghỉ đến {new Date(stats!.cooldownUntil!).toLocaleTimeString("vi-VN")}.</p>}
     {(error || stats?.lastError) && <p role="alert">{error || stats?.lastError}</p>}
